@@ -1,0 +1,8 @@
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Usiamo la posizione per salvare dove hai fatto benzina.</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Usiamo la posizione per salvare dove hai fatto benzina.</string>
+<key>LSApplicationQueriesSchemes</key>
+<array>
+    <string>comgooglemaps</string>
+</array>

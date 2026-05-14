@@ -1,0 +1,516 @@
+import SwiftUI
+import SwiftData
+import CoreLocation
+import MapKit
+import UIKit
+
+struct GasStation: Identifiable, Equatable {
+    let id = UUID()
+    let name: String
+    let address: String?
+    let coordinate: CLLocationCoordinate2D
+    let distanceMeters: CLLocationDistance
+    let price: Double?
+    let selfService: Bool?
+
+    static func == (lhs: GasStation, rhs: GasStation) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+struct AddFuelEntryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @AppStorage("carsJson") private var carsJson: String = ""
+    @AppStorage("selectedCarId") private var selectedCarId: String = ""
+
+    @AppStorage("gpsTrackingEnabled") private var gpsTrackingEnabled: Bool = false
+    @AppStorage("estimatedKmSinceLastRefuel") private var estimatedKmSinceLastRefuel: Double = 0
+
+    @State private var cars: [CarInfo] = []
+    @State private var selectedEntryCarId = ""
+
+    @State private var amount = ""
+    @State private var odometerKm = ""
+    @State private var isSaving = false
+
+    @State private var currentLocation: CLLocation?
+    @State private var currentAddress: String?
+
+    @State private var gasStations: [GasStation] = []
+    @State private var selectedStation: GasStation?
+
+    @State private var isLoadingStations = false
+    @State private var isLoadingBestStation = false
+    @State private var bestStationMessage: String?
+    @State private var recommendedStations: [GasStation] = []
+
+    @State private var stationForActions: GasStation?
+    @State private var cameraPosition: MapCameraPosition = .automatic
+
+    private let locationService = LocationService()
+
+    private var selectedEntryCar: CarInfo? {
+        cars.first { $0.id.uuidString == selectedEntryCarId }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Auto") {
+                    if cars.isEmpty {
+                        Text("Nessuna auto salvata. Aggiungila dalle Impostazioni.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Auto", selection: $selectedEntryCarId) {
+                            ForEach(cars) { car in
+                                Text("\(car.name) - \(car.fuelTypeRaw)")
+                                    .tag(car.id.uuidString)
+                            }
+                        }
+                    }
+                }
+
+                Section("Dati rifornimento") {
+                    TextField("Importo speso", text: $amount)
+                        .keyboardType(.decimalPad)
+
+                    TextField("Chilometri odometro", text: $odometerKm)
+                        .keyboardType(.decimalPad)
+
+                    if gpsTrackingEnabled {
+                        Text("Km stimati da GPS: \(Int(estimatedKmSinceLastRefuel)) km")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Mappa") {
+                    if let location = currentLocation {
+                        Map(position: $cameraPosition) {
+                            Marker("Tu", coordinate: location.coordinate)
+
+                            ForEach(gasStations) { station in
+                                Marker(station.name, coordinate: station.coordinate)
+                            }
+                        }
+                        .frame(height: 250)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                        if let currentAddress {
+                            Text(currentAddress)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Posizione non disponibile")
+                            .foregroundStyle(.secondary)
+
+                        Button("Rileva posizione") {
+                            Task {
+                                await loadLocationAndStations()
+                            }
+                        }
+                    }
+                }
+
+                Section("Consigliati") {
+                    Button {
+                        Task {
+                            await loadBestStations()
+                        }
+                    } label: {
+                        HStack {
+                            if isLoadingBestStation {
+                                ProgressView()
+                            }
+
+                            Text("Trova i 2 migliori distributori")
+                        }
+                    }
+                    .disabled(currentLocation == nil || isLoadingBestStation)
+
+                    if let bestStationMessage {
+                        Text(bestStationMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if recommendedStations.isEmpty {
+                        Text("Nessun consiglio calcolato.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(recommendedStations) { station in
+                            stationRow(station)
+                        }
+                    }
+                }
+
+                Section("Benzinai vicini") {
+                    if isLoadingStations {
+                        HStack {
+                            ProgressView()
+                            Text("Ricerca distributori...")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if gasStations.isEmpty {
+                        Text("Nessun benzinaio trovato vicino.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(gasStations) { station in
+                            stationRow(station)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Nuovo rifornimento")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Chiudi") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task {
+                            await save()
+                        }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Salva")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .task {
+                loadCars()
+                selectedEntryCarId = selectedCarId
+
+                if selectedEntryCarId.isEmpty, let first = cars.first {
+                    selectedEntryCarId = first.id.uuidString
+                }
+
+                await loadLocationAndStations()
+            }
+            .onChange(of: selectedEntryCarId) {
+                Task {
+                    bestStationMessage = nil
+                    recommendedStations = []
+                    await loadLocationAndStations()
+                }
+            }
+            .confirmationDialog(
+
+                "Apri navigazione",
+
+                isPresented: Binding(
+
+                    get: { stationForActions != nil },
+
+                    set: { if !$0 { stationForActions = nil } }
+
+                )
+
+            ) {
+
+                if let station = stationForActions {
+
+                    Button("Apri in Apple Maps") {
+
+                        openInAppleMaps(station)
+
+                        stationForActions = nil
+
+                    }
+
+                    Button("Apri in Google Maps") {
+
+                        openInGoogleMaps(station)
+
+                        stationForActions = nil
+
+                    }
+
+                }
+
+                Button("Annulla", role: .cancel) {
+
+                    stationForActions = nil
+
+                }
+
+            } message: {
+
+                Text(stationForActions?.name ?? "Distributore")
+
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stationRow(_ station: GasStation) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(station.name)
+                    .font(.headline)
+
+                if let address = station.address {
+                    Text(address)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("\(Int(station.distanceMeters)) metri")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let price = station.price {
+                    Text(String(format: "%.3f €/L", price))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let selfService = station.selfService {
+                    Text(selfService ? "Self" : "Servito")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Tocca per selezionare, tieni premuto per navigare")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            if selectedStation?.id == station.id {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "map")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectStation(station)
+        }
+        .onLongPressGesture {
+            stationForActions = station
+        }
+    }
+
+    private func loadCars() {
+        guard
+            let data = carsJson.data(using: .utf8),
+            let decoded = try? JSONDecoder().decode([CarInfo].self, from: data)
+        else {
+            cars = []
+            return
+        }
+
+        cars = decoded
+    }
+
+    private func loadLocationAndStations() async {
+        isLoadingStations = true
+
+        let location = await locationService.requestLocation()
+        currentLocation = location
+
+        if let location {
+            cameraPosition = .region(
+                MKCoordinateRegion(
+                    center: location.coordinate,
+                    latitudinalMeters: 1500,
+                    longitudinalMeters: 1500
+                )
+            )
+        }
+
+        guard let location else {
+            isLoadingStations = false
+            return
+        }
+
+        currentAddress = await locationService.reverseGeocode(location)
+        gasStations = await findNearbyGasStations(from: location)
+        selectedStation = gasStations.first
+
+        if let selectedStation {
+            moveMap(to: selectedStation, meters: 1000)
+        }
+
+        isLoadingStations = false
+    }
+
+    private func findNearbyGasStations(from location: CLLocation) async -> [GasStation] {
+        do {
+            let fuelType = selectedEntryCar?.fuelTypeRaw.uppercased() ?? "BENZINA"
+
+            let stations = try await FuelStationAPI.shared.nearbyStations(
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                fuelType: fuelType,
+                radiusMeters: 5000
+            )
+
+            return stations.map { station in
+                GasStation(
+                    name: station.brand ?? station.name ?? "Distributore",
+                    address: station.address,
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: station.latitude,
+                        longitude: station.longitude
+                    ),
+                    distanceMeters: station.distanceMeters,
+                    price: station.price,
+                    selfService: station.selfService
+                )
+            }
+        } catch {
+            print("BACKEND STATIONS ERROR:", error.localizedDescription)
+            return []
+        }
+    }
+
+    private func loadBestStations() async {
+        guard let location = currentLocation else {
+            return
+        }
+
+        isLoadingBestStation = true
+        bestStationMessage = nil
+        recommendedStations = []
+
+        do {
+            let fuelType = selectedEntryCar?.fuelTypeRaw.uppercased() ?? "BENZINA"
+
+            let bestStations = try await FuelStationAPI.shared.bestStations(
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                fuelType: fuelType,
+                liters: 30,
+                carKmPerLiter: 15,
+                radiusMeters: 10000,
+                limit: 2
+            )
+
+            recommendedStations = bestStations.map { station in
+                GasStation(
+                    name: station.brand ?? station.name ?? "Distributore",
+                    address: station.address,
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: station.latitude,
+                        longitude: station.longitude
+                    ),
+                    distanceMeters: station.distanceMeters,
+                    price: station.price,
+                    selfService: station.selfService
+                )
+            }
+
+            for station in recommendedStations {
+                if !gasStations.contains(where: { $0.address == station.address && $0.name == station.name }) {
+                    gasStations.insert(station, at: 0)
+                }
+            }
+
+            if let first = recommendedStations.first {
+                selectStation(first)
+            }
+
+        } catch {
+            print("BEST STATIONS ERROR:", error.localizedDescription)
+            bestStationMessage = "Non riesco a calcolare i distributori consigliati."
+        }
+
+        isLoadingBestStation = false
+    }
+
+    private func selectStation(_ station: GasStation) {
+        selectedStation = station
+        moveMap(to: station, meters: 800)
+    }
+
+    private func moveMap(to station: GasStation, meters: CLLocationDistance) {
+        cameraPosition = .region(
+            MKCoordinateRegion(
+                center: station.coordinate,
+                latitudinalMeters: meters,
+                longitudinalMeters: meters
+            )
+        )
+    }
+
+    private func openInAppleMaps(_ station: GasStation) {
+        let placemark = MKPlacemark(coordinate: station.coordinate)
+        let mapItem = MKMapItem(placemark: placemark)
+        mapItem.name = station.name
+
+        mapItem.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
+    }
+
+    private func openInGoogleMaps(_ station: GasStation) {
+        let lat = station.coordinate.latitude
+        let lng = station.coordinate.longitude
+
+        if let url = URL(string: "comgooglemaps://?daddr=\(lat),\(lng)&directionsmode=driving"),
+           UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+            return
+        }
+
+        if let webUrl = URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(lat),\(lng)") {
+            UIApplication.shared.open(webUrl)
+        }
+    }
+
+    private func save() async {
+        guard
+            let amountValue = Double(amount.replacingOccurrences(of: ",", with: ".")),
+            let kmValue = Double(odometerKm.replacingOccurrences(of: ",", with: "."))
+        else {
+            return
+        }
+
+        isSaving = true
+
+        if currentLocation == nil {
+            await loadLocationAndStations()
+        }
+
+        let selectedCar = selectedEntryCar
+
+        let entry = FuelEntry(
+            amount: amountValue,
+            odometerKm: kmValue,
+            latitude: selectedStation?.coordinate.latitude ?? currentLocation?.coordinate.latitude,
+            longitude: selectedStation?.coordinate.longitude ?? currentLocation?.coordinate.longitude,
+            address: selectedStation?.address ?? currentAddress,
+            stationName: selectedStation?.name,
+            carName: selectedCar?.name,
+            fuelTypeRaw: selectedCar?.fuelTypeRaw,
+            gpsEstimatedKm: gpsTrackingEnabled ? estimatedKmSinceLastRefuel : nil,
+            fuelPrice: selectedStation?.price
+        )
+
+        modelContext.insert(entry)
+
+        if gpsTrackingEnabled {
+            estimatedKmSinceLastRefuel = 0
+        }
+
+        isSaving = false
+        dismiss()
+    }
+}
