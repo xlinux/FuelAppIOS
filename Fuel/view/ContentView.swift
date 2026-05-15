@@ -9,6 +9,7 @@ struct ContentView: View {
     private var entries: [FuelEntry]
 
     @State private var showingAdd = false
+    @State private var isLoadingRemoteEntries = false
 
     @AppStorage("carsJson") private var carsJson: String = ""
     @AppStorage("selectedCarId") private var selectedCarId: String = ""
@@ -44,6 +45,14 @@ struct ContentView: View {
 
         TabView {
 
+            HomeView()
+                .tabItem {
+                    Label(
+                        "Home",
+                        systemImage: "house.fill"
+                    )
+                }
+
             NavigationStack {
 
                 List {
@@ -61,6 +70,15 @@ struct ContentView: View {
                                 format: .currency(code: "EUR")
                             )
                             .font(.largeTitle.bold())
+
+                            if isLoadingRemoteEntries {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("Sincronizzazione rifornimenti...")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         .padding(.vertical, 8)
                     }
@@ -137,6 +155,9 @@ struct ContentView: View {
                 .sheet(isPresented: $showingAdd) {
                     AddFuelEntryView()
                 }
+                .task {
+                    await syncFuelEntriesFromBackend()
+                }
             }
             .tabItem {
                 Label(
@@ -165,9 +186,82 @@ struct ContentView: View {
     }
 
     private func deleteEntries(at offsets: IndexSet) {
-
         for index in offsets {
-            modelContext.delete(entries[index])
+            let entry = entries[index]
+            modelContext.delete(entry)
         }
+
+        do {
+            try modelContext.save()
+        } catch {
+            print("ERRORE DELETE LOCALE RIFORNIMENTO:", error.localizedDescription)
+        }
+    }
+
+    private func syncFuelEntriesFromBackend() async {
+        await MainActor.run {
+            isLoadingRemoteEntries = true
+        }
+
+        do {
+            let remoteEntries = try await UserDataAPI.shared.fetchFuelEntries()
+
+            await MainActor.run {
+                for entry in entries {
+                    modelContext.delete(entry)
+                }
+
+                for remote in remoteEntries {
+                    let entry = FuelEntry(
+                        date: parseRemoteDate(remote.entryDate) ?? .now,
+                        amount: remote.amount,
+                        odometerKm: remote.odometerKm,
+                        latitude: remote.latitude,
+                        longitude: remote.longitude,
+                        address: remote.address,
+                        stationName: remote.stationName,
+                        carName: remote.carName,
+                        fuelTypeRaw: remote.fuelType,
+                        gpsEstimatedKm: remote.gpsEstimatedKm,
+                        fuelPrice: remote.fuelPrice
+                    )
+
+                    modelContext.insert(entry)
+                }
+
+                do {
+                    try modelContext.save()
+                } catch {
+                    print("ERRORE SAVE SYNC RIFORNIMENTI:", error.localizedDescription)
+                }
+
+                isLoadingRemoteEntries = false
+            }
+
+        } catch {
+            print("ERRORE SYNC RIFORNIMENTI BACKEND:", error.localizedDescription)
+
+            await MainActor.run {
+                isLoadingRemoteEntries = false
+            }
+        }
+    }
+
+    private func parseRemoteDate(_ value: String?) -> Date? {
+        guard let value else {
+            return nil
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+
+        let fallbackFormatter = DateFormatter()
+        fallbackFormatter.locale = Locale(identifier: "it_IT")
+        fallbackFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+
+        return fallbackFormatter.date(from: value)
     }
 }

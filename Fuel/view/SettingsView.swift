@@ -1,16 +1,23 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
+
+    @Environment(\.modelContext) private var modelContext
+
+    @Query private var fuelEntries: [FuelEntry]
 
     @AppStorage("carsJson") private var carsJson: String = ""
     @AppStorage("selectedCarId") private var selectedCarId: String = ""
 
     @AppStorage("gpsTrackingEnabled") private var gpsTrackingEnabled: Bool = false
     @AppStorage("estimatedKmSinceLastRefuel") private var estimatedKmSinceLastRefuel: Double = 0
+    @AppStorage("stationSearchRadiusMeters") private var stationSearchRadiusMeters: Double = 5000
 
     @AppStorage("appTheme") private var appThemeRaw: String = AppTheme.system.rawValue
 
     @State private var cars: [CarInfo] = []
+    @State private var isLoadingCars = false
 
     @State private var newCarName = ""
     @State private var newFuelType: FuelType = .benzina
@@ -101,7 +108,13 @@ struct SettingsView: View {
                 }
 
                 Section("Auto salvate") {
-                    if cars.isEmpty {
+                    if isLoadingCars {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                    } else if cars.isEmpty {
                         Text("Nessuna auto salvata.")
                             .foregroundStyle(.secondary)
                     } else {
@@ -143,6 +156,31 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Ricerca distributori") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Raggio ricerca")
+
+                            Spacer()
+
+                            Text("\(Int(stationSearchRadiusMeters / 1000)) km")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(appTintColor)
+                        }
+
+                        Slider(
+                            value: $stationSearchRadiusMeters,
+                            in: 2000...10000,
+                            step: 1000
+                        )
+                        .tint(appTintColor)
+
+                        Text("Usato per cercare distributori vicini e consigliati.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("GPS") {
                     Toggle(
                         "Traccia km con GPS",
@@ -160,8 +198,8 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Impostazioni")
-            .onAppear {
-                loadCars()
+            .task {
+                await loadCarsFromBackend()
             }
             .sheet(item: $editingCar) { car in
                 NavigationStack {
@@ -227,21 +265,37 @@ struct SettingsView: View {
             return
         }
 
-        let car = CarInfo(
-            name: name,
-            fuelTypeRaw: newFuelType.rawValue
-        )
+        Task {
+            do {
+                let remote = try await UserDataAPI.shared.createCar(
+                    name: name,
+                    fuelType: newFuelType.rawValue,
+                    defaultCar: cars.isEmpty
+                )
 
-        cars.append(car)
+                let car = CarInfo(
+                    id: UUID(uuidString: remote.id) ?? UUID(),
+                    name: remote.name,
+                    fuelTypeRaw: remote.fuelType.capitalized
+                )
 
-        if selectedCarId.isEmpty {
-            selectedCarId = car.id.uuidString
+                await MainActor.run {
+                    cars.append(car)
+
+                    if selectedCarId.isEmpty {
+                        selectedCarId = car.id.uuidString
+                    }
+
+                    newCarName = ""
+                    newFuelType = .benzina
+
+                    saveCars()
+                }
+
+            } catch {
+                print("ERRORE CREAZIONE AUTO BACKEND:", error.localizedDescription)
+            }
         }
-
-        newCarName = ""
-        newFuelType = .benzina
-
-        saveCars()
     }
 
     private func startEdit(_ car: CarInfo) {
@@ -251,13 +305,6 @@ struct SettingsView: View {
     }
 
     private func saveEditedCar(_ car: CarInfo) {
-        guard let index = cars.firstIndex(where: {
-            $0.id == car.id
-        }) else {
-            editingCar = nil
-            return
-        }
-
         let name = editCarName
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -265,16 +312,65 @@ struct SettingsView: View {
             return
         }
 
-        cars[index].name = name
-        cars[index].fuelType = editFuelType
+        let oldName = car.name
+        let isDefault = selectedCarId == car.id.uuidString
 
-        saveCars()
-        editingCar = nil
+        Task {
+            do {
+                let remote = try await UserDataAPI.shared.updateCar(
+                    id: car.id.uuidString,
+                    name: name,
+                    fuelType: editFuelType.rawValue,
+                    defaultCar: isDefault
+                )
+
+                await MainActor.run {
+                    if let index = cars.firstIndex(where: { $0.id == car.id }) {
+                        cars[index] = CarInfo(
+                            id: UUID(uuidString: remote.id) ?? car.id,
+                            name: remote.name,
+                            fuelTypeRaw: remote.fuelType.capitalized
+                        )
+                    }
+
+                    for entry in fuelEntries where entry.carName == oldName {
+                        entry.carName = remote.name
+                        entry.fuelTypeRaw = remote.fuelType.capitalized
+                    }
+
+                    do {
+                        try modelContext.save()
+                    } catch {
+                        print("ERRORE UPDATE RIFORNIMENTI LOCALI AUTO:", error.localizedDescription)
+                    }
+
+                    saveCars()
+                    editingCar = nil
+                }
+
+            } catch {
+                print("ERRORE UPDATE AUTO BACKEND:", error.localizedDescription)
+            }
+        }
     }
 
     private func deleteCars(at offsets: IndexSet) {
         for index in offsets {
             let removed = cars[index]
+
+            Task {
+                do {
+                    try await UserDataAPI.shared.deleteCar(
+                        id: removed.id.uuidString
+                    )
+                } catch {
+                    print("ERRORE DELETE AUTO BACKEND:", error.localizedDescription)
+                }
+            }
+
+            for entry in fuelEntries where entry.carName == removed.name {
+                modelContext.delete(entry)
+            }
 
             if selectedCarId == removed.id.uuidString {
                 selectedCarId = ""
@@ -289,6 +385,50 @@ struct SettingsView: View {
         }
 
         saveCars()
+
+        do {
+            try modelContext.save()
+        } catch {
+            print("ERRORE ELIMINAZIONE AUTO/RIFORNIMENTI:", error.localizedDescription)
+        }
+    }
+
+    private func loadCarsFromBackend() async {
+        await MainActor.run {
+            isLoadingCars = true
+        }
+
+        do {
+            let remoteCars = try await UserDataAPI.shared.fetchCars()
+
+            let mappedCars = remoteCars.map {
+                CarInfo(
+                    id: UUID(uuidString: $0.id) ?? UUID(),
+                    name: $0.name,
+                    fuelTypeRaw: $0.fuelType.capitalized
+                )
+            }
+
+            await MainActor.run {
+                cars = mappedCars
+
+                if selectedCarId.isEmpty,
+                   let first = mappedCars.first {
+                    selectedCarId = first.id.uuidString
+                }
+
+                saveCars()
+                isLoadingCars = false
+            }
+
+        } catch {
+            print("ERRORE LOAD AUTO BACKEND:", error.localizedDescription)
+
+            await MainActor.run {
+                loadCars()
+                isLoadingCars = false
+            }
+        }
     }
 
     private func loadCars() {

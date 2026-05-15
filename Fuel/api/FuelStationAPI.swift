@@ -20,7 +20,8 @@ final class FuelStationAPI {
             URLQueryItem(name: "lat", value: "\(lat)"),
             URLQueryItem(name: "lng", value: "\(lng)"),
             URLQueryItem(name: "fuelType", value: fuelType),
-            URLQueryItem(name: "radiusMeters", value: "\(radiusMeters)")
+            URLQueryItem(name: "radiusMeters", value: "\(radiusMeters)"),
+            URLQueryItem(name: "maxPriceAgeDays", value: "7")
         ]
 
         let url = components.url!
@@ -69,7 +70,7 @@ final class FuelStationAPI {
         liters: Double = 30,
         carKmPerLiter: Double = 15,
         radiusMeters: Int = 10000,
-        limit: Int = 2
+        limit: Int = 5
     ) async throws -> [FuelStationDTO] {
 
         var components = URLComponents(
@@ -83,7 +84,8 @@ final class FuelStationAPI {
             URLQueryItem(name: "liters", value: "\(liters)"),
             URLQueryItem(name: "carKmPerLiter", value: "\(carKmPerLiter)"),
             URLQueryItem(name: "radiusMeters", value: "\(radiusMeters)"),
-            URLQueryItem(name: "limit", value: "\(limit)")
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "maxPriceAgeDays", value: "7")
         ]
 
         let url = components.url!

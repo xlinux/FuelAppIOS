@@ -12,9 +12,80 @@ struct GasStation: Identifiable, Equatable {
     let distanceMeters: CLLocationDistance
     let price: Double?
     let selfService: Bool?
+    let priceUpdatedAt: String?
 
     static func == (lhs: GasStation, rhs: GasStation) -> Bool {
         lhs.id == rhs.id
+    }
+
+    var priceUpdatedAtFormatted: String? {
+        guard let priceUpdatedAt else {
+            return nil
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+
+        if let date = isoFormatter.date(from: priceUpdatedAt) {
+            let output = DateFormatter()
+            output.locale = Locale(identifier: "it_IT")
+            output.dateStyle = .short
+            output.timeStyle = .short
+            return output.string(from: date)
+        }
+
+        let fallbackFormatter = DateFormatter()
+        fallbackFormatter.locale = Locale(identifier: "it_IT")
+        fallbackFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+
+        if let date = fallbackFormatter.date(from: priceUpdatedAt) {
+            let output = DateFormatter()
+            output.locale = Locale(identifier: "it_IT")
+            output.dateStyle = .short
+            output.timeStyle = .short
+            return output.string(from: date)
+        }
+
+        return priceUpdatedAt
+    }
+
+    var priceAgeDays: Int? {
+        guard let priceUpdatedAt else {
+            return nil
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+        var parsedDate = isoFormatter.date(from: priceUpdatedAt)
+
+        if parsedDate == nil {
+            let fallbackFormatter = DateFormatter()
+            fallbackFormatter.locale = Locale(identifier: "it_IT")
+            fallbackFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            parsedDate = fallbackFormatter.date(from: priceUpdatedAt)
+        }
+
+        guard let parsedDate else {
+            return nil
+        }
+
+        return Calendar.current.dateComponents(
+            [.day],
+            from: parsedDate,
+            to: Date()
+        ).day
+    }
+
+    var priceFreshnessDot: String {
+        guard let priceAgeDays else {
+            return "⚪️"
+        }
+
+        if priceAgeDays <= 2 {
+            return "🟢"
+        } else if priceAgeDays <= 7 {
+            return "🟡"
+        } else {
+            return "🔴"
+        }
     }
 }
 
@@ -27,6 +98,7 @@ struct AddFuelEntryView: View {
 
     @AppStorage("gpsTrackingEnabled") private var gpsTrackingEnabled: Bool = false
     @AppStorage("estimatedKmSinceLastRefuel") private var estimatedKmSinceLastRefuel: Double = 0
+    @AppStorage("stationSearchRadiusMeters") private var stationSearchRadiusMeters: Double = 5000
 
     @State private var cars: [CarInfo] = []
     @State private var selectedEntryCarId = ""
@@ -150,11 +222,14 @@ struct AddFuelEntryView: View {
 
                 Section("Benzinai vicini") {
                     if isLoadingStations {
-                        HStack {
+                        HStack(spacing: 12) {
                             ProgressView()
+                                .progressViewStyle(.circular)
+
                             Text("Ricerca distributori...")
                                 .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 8)
                     } else if gasStations.isEmpty {
                         Text("Nessun benzinaio trovato vicino.")
                             .foregroundStyle(.secondary)
@@ -207,49 +282,29 @@ struct AddFuelEntryView: View {
                 }
             }
             .confirmationDialog(
-
                 "Apri navigazione",
-
                 isPresented: Binding(
-
                     get: { stationForActions != nil },
-
                     set: { if !$0 { stationForActions = nil } }
-
                 )
-
             ) {
-
                 if let station = stationForActions {
-
                     Button("Apri in Apple Maps") {
-
                         openInAppleMaps(station)
-
                         stationForActions = nil
-
                     }
 
                     Button("Apri in Google Maps") {
-
                         openInGoogleMaps(station)
-
                         stationForActions = nil
-
                     }
-
                 }
 
                 Button("Annulla", role: .cancel) {
-
                     stationForActions = nil
-
                 }
-
             } message: {
-
                 Text(stationForActions?.name ?? "Distributore")
-
             }
         }
     }
@@ -274,6 +329,12 @@ struct AddFuelEntryView: View {
                 if let price = station.price {
                     Text(String(format: "%.3f €/L", price))
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let updated = station.priceUpdatedAtFormatted {
+                    Text("\(station.priceFreshnessDot) Aggiornato: \(updated)")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
 
@@ -321,6 +382,8 @@ struct AddFuelEntryView: View {
 
     private func loadLocationAndStations() async {
         isLoadingStations = true
+        gasStations = []
+        selectedStation = nil
 
         let location = await locationService.requestLocation()
         currentLocation = location
@@ -359,7 +422,7 @@ struct AddFuelEntryView: View {
                 lat: location.coordinate.latitude,
                 lng: location.coordinate.longitude,
                 fuelType: fuelType,
-                radiusMeters: 5000
+                radiusMeters: Int(stationSearchRadiusMeters)
             )
 
             return stations.map { station in
@@ -372,7 +435,8 @@ struct AddFuelEntryView: View {
                     ),
                     distanceMeters: station.distanceMeters,
                     price: station.price,
-                    selfService: station.selfService
+                    selfService: station.selfService,
+                    priceUpdatedAt: station.priceUpdatedAt
                 )
             }
         } catch {
@@ -399,22 +463,32 @@ struct AddFuelEntryView: View {
                 fuelType: fuelType,
                 liters: 30,
                 carKmPerLiter: 15,
-                radiusMeters: 10000,
-                limit: 2
+                radiusMeters: Int(stationSearchRadiusMeters),
+                limit: 10
             )
 
-            recommendedStations = bestStations.map { station in
-                GasStation(
-                    name: station.brand ?? station.name ?? "Distributore",
-                    address: station.address,
-                    coordinate: CLLocationCoordinate2D(
-                        latitude: station.latitude,
-                        longitude: station.longitude
-                    ),
-                    distanceMeters: station.distanceMeters,
-                    price: station.price,
-                    selfService: station.selfService
-                )
+            recommendedStations = Array(
+                bestStations
+                    .map { station in
+                        GasStation(
+                            name: station.brand ?? station.name ?? "Distributore",
+                            address: station.address,
+                            coordinate: CLLocationCoordinate2D(
+                                latitude: station.latitude,
+                                longitude: station.longitude
+                            ),
+                            distanceMeters: station.distanceMeters,
+                            price: station.price,
+                            selfService: station.selfService,
+                            priceUpdatedAt: station.priceUpdatedAt
+                        )
+                    }
+                    .filter { $0.priceFreshnessDot == "🟢" }
+                    .prefix(2)
+            )
+
+            if recommendedStations.isEmpty {
+                bestStationMessage = "Nessun distributore consigliato con prezzo aggiornato di recente."
             }
 
             for station in recommendedStations {
@@ -505,6 +579,34 @@ struct AddFuelEntryView: View {
         )
 
         modelContext.insert(entry)
+
+        do {
+            try modelContext.save()
+        } catch {
+            print("ERRORE SALVATAGGIO LOCALE RIFORNIMENTO:", error.localizedDescription)
+        }
+
+        let remoteRequest = RemoteFuelEntryRequest(
+            carId: selectedCar?.id.uuidString,
+            carName: selectedCar?.name,
+            fuelType: selectedCar?.fuelTypeRaw.uppercased(),
+            amount: amountValue,
+            odometerKm: kmValue,
+            fuelPrice: selectedStation?.price,
+            gpsEstimatedKm: gpsTrackingEnabled ? estimatedKmSinceLastRefuel : nil,
+            latitude: selectedStation?.coordinate.latitude ?? currentLocation?.coordinate.latitude,
+            longitude: selectedStation?.coordinate.longitude ?? currentLocation?.coordinate.longitude,
+            address: selectedStation?.address ?? currentAddress,
+            stationName: selectedStation?.name,
+            entryDate: ISO8601DateFormatter().string(from: Date())
+        )
+
+        do {
+            _ = try await UserDataAPI.shared.createFuelEntry(remoteRequest)
+            print("RIFORNIMENTO SALVATO SU BACKEND")
+        } catch {
+            print("ERRORE SALVATAGGIO BACKEND RIFORNIMENTO:", error.localizedDescription)
+        }
 
         if gpsTrackingEnabled {
             estimatedKmSinceLastRefuel = 0

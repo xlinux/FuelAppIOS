@@ -7,13 +7,41 @@ struct DashboardView: View {
     @Query(sort: \FuelEntry.date, order: .forward)
     private var entries: [FuelEntry]
 
+    @AppStorage("carsJson") private var carsJson: String = ""
+    @AppStorage("selectedCarId") private var selectedCarId: String = ""
+
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var isLoadingRemoteEntries = false
+
+    private var selectedCar: CarInfo? {
+        guard
+            let data = carsJson.data(using: .utf8),
+            let cars = try? JSONDecoder().decode([CarInfo].self, from: data)
+        else {
+            return nil
+        }
+
+        return cars.first { $0.id.uuidString == selectedCarId }
+    }
+
+    private var carEntries: [FuelEntry] {
+        guard let selectedCar else {
+            return entries
+        }
+
+        return entries.filter { entry in
+            entry.carName == selectedCar.name
+        }
+    }
+
     private var totalSpent: Double {
-        entries.reduce(0) { $0 + $1.amount }
+        carEntries.reduce(0) { $0 + $1.amount }
     }
 
     private var totalKm: Double {
-        guard let first = entries.first?.odometerKm,
-              let last = entries.last?.odometerKm,
+        guard let first = carEntries.first?.odometerKm,
+              let last = carEntries.last?.odometerKm,
               last > first else {
             return 0
         }
@@ -31,17 +59,17 @@ struct DashboardView: View {
     }
 
     private var averageRefuel: Double {
-        guard !entries.isEmpty else { return 0 }
-        return totalSpent / Double(entries.count)
+        guard !carEntries.isEmpty else { return 0 }
+        return totalSpent / Double(carEntries.count)
     }
 
     private var lastEntry: FuelEntry? {
-        entries.last
+        carEntries.last
     }
 
     private var previousEntry: FuelEntry? {
-        guard entries.count >= 2 else { return nil }
-        return entries[entries.count - 2]
+        guard carEntries.count >= 2 else { return nil }
+        return carEntries[carEntries.count - 2]
     }
 
     private var kmSinceLastRefuel: Double {
@@ -59,7 +87,7 @@ struct DashboardView: View {
     }
 
     private var fuelStatusText: String {
-        guard entries.count >= 3 else {
+        guard carEntries.count >= 3 else {
             return "Servono almeno 3 rifornimenti per stimare meglio l’autonomia."
         }
 
@@ -83,7 +111,7 @@ struct DashboardView: View {
     }
 
     private var daysSinceLastRefuel: Int {
-        guard let lastDate = entries.last?.date else { return 0 }
+        guard let lastDate = carEntries.last?.date else { return 0 }
 
         return Calendar.current.dateComponents(
             [.day],
@@ -122,19 +150,30 @@ struct DashboardView: View {
                 }
 
                 Section("Statistiche generali") {
+                    if let selectedCar {
+                        statRow("Statistiche auto", selectedCar.name)
+                    }
+                    if isLoadingRemoteEntries {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Aggiornamento dati...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     statRow("Totale speso", totalSpent.formatted(.currency(code: "EUR")))
                     statRow("Km totali tracciati", "\(Int(totalKm)) km")
                     statRow("Costo medio/km", costPerKm.formatted(.currency(code: "EUR")))
                     statRow("Media rifornimento", averageRefuel.formatted(.currency(code: "EUR")))
-                    statRow("Numero rifornimenti", "\(entries.count)")
+                    statRow("Numero rifornimenti", "\(carEntries.count)")
                 }
 
                 Section("Spesa per rifornimento") {
-                    if entries.isEmpty {
+                    if carEntries.isEmpty {
                         Text("Nessun dato disponibile")
                             .foregroundStyle(.secondary)
                     } else {
-                        Chart(entries) { entry in
+                        Chart(carEntries) { entry in
                             BarMark(
                                 x: .value("Data", entry.date, unit: .day),
                                 y: .value("Spesa", entry.amount)
@@ -145,11 +184,11 @@ struct DashboardView: View {
                 }
 
                 Section("Andamento chilometri") {
-                    if entries.isEmpty {
+                    if carEntries.isEmpty {
                         Text("Nessun dato disponibile")
                             .foregroundStyle(.secondary)
                     } else {
-                        Chart(entries) { entry in
+                        Chart(carEntries) { entry in
                             LineMark(
                                 x: .value("Data", entry.date, unit: .day),
                                 y: .value("Km", entry.odometerKm)
@@ -160,6 +199,9 @@ struct DashboardView: View {
                 }
             }
             .navigationTitle("Dashboard")
+            .task {
+                await syncFuelEntriesFromBackend()
+            }
         }
     }
 
@@ -170,5 +212,72 @@ struct DashboardView: View {
             Text(value)
                 .fontWeight(.semibold)
         }
+    }
+
+    private func syncFuelEntriesFromBackend() async {
+        await MainActor.run {
+            isLoadingRemoteEntries = true
+        }
+
+        do {
+            let remoteEntries = try await UserDataAPI.shared.fetchFuelEntries()
+
+            await MainActor.run {
+                for entry in entries {
+                    modelContext.delete(entry)
+                }
+
+                for remote in remoteEntries {
+                    let entry = FuelEntry(
+                        date: parseRemoteDate(remote.entryDate) ?? .now,
+                        amount: remote.amount,
+                        odometerKm: remote.odometerKm,
+                        latitude: remote.latitude,
+                        longitude: remote.longitude,
+                        address: remote.address,
+                        stationName: remote.stationName,
+                        carName: remote.carName,
+                        fuelTypeRaw: remote.fuelType,
+                        gpsEstimatedKm: remote.gpsEstimatedKm,
+                        fuelPrice: remote.fuelPrice
+                    )
+
+                    modelContext.insert(entry)
+                }
+
+                do {
+                    try modelContext.save()
+                } catch {
+                    print("ERRORE SAVE SYNC DASHBOARD:", error.localizedDescription)
+                }
+
+                isLoadingRemoteEntries = false
+            }
+
+        } catch {
+            print("ERRORE SYNC DASHBOARD BACKEND:", error.localizedDescription)
+
+            await MainActor.run {
+                isLoadingRemoteEntries = false
+            }
+        }
+    }
+
+    private func parseRemoteDate(_ value: String?) -> Date? {
+        guard let value else {
+            return nil
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+
+        let fallbackFormatter = DateFormatter()
+        fallbackFormatter.locale = Locale(identifier: "it_IT")
+        fallbackFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+
+        return fallbackFormatter.date(from: value)
     }
 }
