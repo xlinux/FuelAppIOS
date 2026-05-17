@@ -252,8 +252,11 @@ struct SettingsView: View {
             return .orange
         case .diesel:
             return .indigo
-        case .elettrico:
+        case .gpl:
             return .green
+            
+        case .metano:
+            return .blue
         }
     }
 

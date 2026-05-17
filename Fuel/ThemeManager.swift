@@ -25,8 +25,12 @@ struct ThemeManager {
         case .diesel:
             return .indigo
 
-        case .elettrico:
+        case .gpl:
             return .green
+            
+        case .metano:
+            return .blue
+
         }
     }
 }

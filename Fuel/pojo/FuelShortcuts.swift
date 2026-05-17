@@ -5,11 +5,11 @@ struct FuelShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: RegisterFuelIntent(),
             phrases: [
-                "Registra benzina con \(.applicationName)",
+                "Registra rifornimento con \(.applicationName)",
                 "Salva rifornimento con \(.applicationName)",
                 "Aggiungi rifornimento con \(.applicationName)"
             ],
-            shortTitle: "Registra benzina",
+            shortTitle: "Registra rifornimento",
             systemImageName: "fuelpump.fill"
         )
     }
