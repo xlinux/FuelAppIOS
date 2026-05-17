@@ -117,6 +117,8 @@ struct AddFuelEntryView: View {
     @State private var isLoadingBestStation = false
     @State private var bestStationMessage: String?
     @State private var recommendedStations: [GasStation] = []
+    @State private var selectedStationsTab = 0
+    @State private var nearbyStationSearchText = ""
 
     @State private var stationForActions: GasStation?
     @State private var cameraPosition: MapCameraPosition = .automatic
@@ -125,6 +127,20 @@ struct AddFuelEntryView: View {
 
     private var selectedEntryCar: CarInfo? {
         cars.first { $0.id.uuidString == selectedEntryCarId }
+    }
+
+    private var filteredGasStations: [GasStation] {
+        let searchText = nearbyStationSearchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !searchText.isEmpty else {
+            return gasStations
+        }
+
+        return gasStations.filter { station in
+            station.name.localizedCaseInsensitiveContains(searchText)
+            || (station.address?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
     }
 
     var body: some View {
@@ -164,7 +180,27 @@ struct AddFuelEntryView: View {
                             Marker("Tu", coordinate: location.coordinate)
 
                             ForEach(gasStations) { station in
-                                Marker(station.name, coordinate: station.coordinate)
+                                Annotation(station.name, coordinate: station.coordinate) {
+                                    Button {
+                                        selectStation(station)
+                                    } label: {
+                                        VStack(spacing: 2) {
+                                            Text(station.name)
+                                                .font(.caption2.bold())
+                                                .lineLimit(1)
+
+                                            if let price = station.price {
+                                                Text(String(format: "%.3f €/L", price))
+                                                    .font(.caption2)
+                                            }
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(.regularMaterial)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
                         .frame(height: 250)
@@ -187,66 +223,102 @@ struct AddFuelEntryView: View {
                     }
                 }
 
-                Section("Consigliati") {
+                Section {
+
                     Button {
                         Task {
-                            await loadBestStations()
+                            if selectedStationsTab == 0 {
+                                await loadBestStations()
+                            } else {
+                                await loadLocationAndStations()
+                            }
                         }
                     } label: {
                         HStack {
-                            if isLoadingBestStation {
+
+                            if selectedStationsTab == 0, isLoadingBestStation {
                                 ProgressView()
                             }
 
-                            Text("Trova i 2 migliori distributori")
+                            if selectedStationsTab == 1, isLoadingStations {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+
+                            Text(
+                                selectedStationsTab == 0
+                                ? "Trova i 2 migliori distributori"
+                                : "Aggiorna distributori nel raggio"
+                            )
                         }
                     }
-                    .disabled(currentLocation == nil || isLoadingBestStation)
+                    .disabled(
+                        selectedStationsTab == 0
+                        ? (currentLocation == nil || isLoadingBestStation)
+                        : isLoadingStations
+                    )
 
-                    if let bestStationMessage {
-                        Text(bestStationMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Picker("Lista distributori", selection: $selectedStationsTab) {
+                        Text("Consigliati")
+                            .tag(0)
+
+                        Text("Nel raggio")
+                            .tag(1)
                     }
+                    .pickerStyle(.segmented)
 
-                    if recommendedStations.isEmpty {
-                        Text("Nessun consiglio calcolato.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(recommendedStations) { station in
-                            stationRow(station)
-                        }
-                    }
-                }
+                    if selectedStationsTab == 0 {
 
-                Section("Benzinai vicini") {
-                    if isLoadingStations {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-
-                            Text("Ricerca distributori...")
+                        if let bestStationMessage {
+                            Text(bestStationMessage)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 8)
-                    } else if gasStations.isEmpty {
-                        Text("Nessun benzinaio trovato vicino.")
-                            .foregroundStyle(.secondary)
+
+                        if recommendedStations.isEmpty {
+                            Text("Nessun consiglio calcolato.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(recommendedStations) { station in
+                                stationRow(station)
+                            }
+                        }
+
                     } else {
-                        ForEach(gasStations) { station in
-                            stationRow(station)
+                        TextField("Cerca distributore", text: $nearbyStationSearchText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        if isLoadingStations {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+
+                                Text("Ricerca distributori...")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 8)
+
+                        } else if filteredGasStations.isEmpty {
+                            Text(
+                                nearbyStationSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? "Nessun benzinaio trovato vicino."
+                                : "Nessun distributore trovato con questa ricerca."
+                            )
+                            .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(filteredGasStations) { station in
+                                stationRow(station)
+                            }
                         }
                     }
+                } header: {
+                    Text("Distributori")
                 }
             }
             .navigationTitle("Nuovo rifornimento")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Chiudi") {
-                        dismiss()
-                    }
-                }
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

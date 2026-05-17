@@ -201,7 +201,7 @@ struct HomeView: View {
                 loadCars()
                 await loadRecommendedStations()
             }
-            .sheet(isPresented: $showingAdd) {
+            .navigationDestination(isPresented: $showingAdd) {
                 AddFuelEntryView()
             }
             .confirmationDialog(
