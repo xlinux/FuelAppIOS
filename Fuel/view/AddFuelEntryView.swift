@@ -144,8 +144,16 @@ struct AddFuelEntryView: View {
         }
     }
 
+    private var displayedRecommendedStations: [GasStation] {
+        displayStations(from: recommendedStations)
+    }
+
+    private var displayedFilteredStations: [GasStation] {
+        displayStations(from: filteredGasStations)
+    }
+
     private var currentVisibleListSource: [GasStation] {
-        selectedStationsTab == 0 ? recommendedStations : filteredGasStations
+        selectedStationsTab == 0 ? displayedRecommendedStations : displayedFilteredStations
     }
 
     var body: some View {
@@ -250,8 +258,13 @@ struct AddFuelEntryView: View {
                                 .font(.caption)
                                 .foregroundStyle(.black.opacity(0.7))
                         } else {
-                            ForEach(recommendedStations) { station in
-                                stationRow(station)
+                            ForEach(Array(recommendedStations.enumerated()), id: \.element.id) { index, station in
+                                if shouldDisplayStation(at: index, in: recommendedStations) {
+                                    stationRow(
+                                        station,
+                                        pairedStation: pairedStation(at: index, in: recommendedStations)
+                                    )
+                                }
                             }
                         }
 
@@ -278,8 +291,13 @@ struct AddFuelEntryView: View {
                             )
                             .foregroundStyle(.black.opacity(0.7))
                         } else {
-                            ForEach(filteredGasStations) { station in
-                                stationRow(station)
+                            ForEach(Array(filteredGasStations.enumerated()), id: \.element.id) { index, station in
+                                if shouldDisplayStation(at: index, in: filteredGasStations) {
+                                    stationRow(
+                                        station,
+                                        pairedStation: pairedStation(at: index, in: filteredGasStations)
+                                    )
+                                }
                             }
                         }
                     }
@@ -448,7 +466,9 @@ struct AddFuelEntryView: View {
     }
 
     @ViewBuilder
-    private func stationRow(_ station: GasStation) -> some View {
+    private func stationRow(_ station: GasStation, pairedStation: GasStation?) -> some View {
+        let prices = mergedPrices(primary: station, secondary: pairedStation)
+
         HStack {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center) {
@@ -473,14 +493,24 @@ struct AddFuelEntryView: View {
 
                     Spacer()
 
-                    if let price = station.price {
-                        Text(String(format: "%.3f €/L", price))
-                            .font(.headline)
-                            .foregroundStyle(.green)
-                    } else {
-                        Text("Prezzo non disponibile")
-                            .font(.caption)
-                            .foregroundStyle(.gray)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if let selfPrice = prices.selfPrice {
+                            Text("Self \(String(format: "%.3f €/L", selfPrice))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.green)
+                        }
+
+                        if let servedPrice = prices.servedPrice {
+                            Text("Servito \(String(format: "%.3f €/L", servedPrice))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
+
+                        if prices.selfPrice == nil && prices.servedPrice == nil {
+                            Text("Prezzo non disponibile")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                        }
                     }
                 }
 
@@ -499,12 +529,6 @@ struct AddFuelEntryView: View {
                         Text("\(station.priceFreshnessDot) \(updated)")
                             .font(.caption)
                             .foregroundStyle(.gray)
-
-                        if let selfService = station.selfService {
-                            Text(selfService ? "Self" : "Servito")
-                                .font(.caption)
-                                .foregroundStyle(selfService ? .green : .orange)
-                        }
                     }
                 }
             }
@@ -528,6 +552,55 @@ struct AddFuelEntryView: View {
         }
         .onDisappear {
             updateVisibleStation(station, isVisible: false)
+        }
+    }
+
+    private func stationKey(_ station: GasStation) -> String {
+        let address = (station.address ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return "\(station.name.lowercased())|\(address)"
+    }
+
+    private func shouldDisplayStation(at index: Int, in stations: [GasStation]) -> Bool {
+        guard index > 0 else { return true }
+        return stationKey(stations[index]) != stationKey(stations[index - 1])
+    }
+
+    private func pairedStation(at index: Int, in stations: [GasStation]) -> GasStation? {
+        let nextIndex = index + 1
+        guard nextIndex < stations.count else { return nil }
+        guard stationKey(stations[index]) == stationKey(stations[nextIndex]) else { return nil }
+        return stations[nextIndex]
+    }
+
+    private func mergedPrices(primary: GasStation, secondary: GasStation?) -> (selfPrice: Double?, servedPrice: Double?) {
+        var selfPrice: Double?
+        var servedPrice: Double?
+
+        if primary.selfService == true {
+            selfPrice = primary.price
+        } else if primary.selfService == false {
+            servedPrice = primary.price
+        } else {
+            selfPrice = primary.price
+        }
+
+        if let secondary {
+            if secondary.selfService == true {
+                selfPrice = secondary.price ?? selfPrice
+            } else if secondary.selfService == false {
+                servedPrice = secondary.price ?? servedPrice
+            }
+        }
+
+        return (selfPrice, servedPrice)
+    }
+
+    private func displayStations(from stations: [GasStation]) -> [GasStation] {
+        stations.enumerated().compactMap { index, station in
+            shouldDisplayStation(at: index, in: stations) ? station : nil
         }
     }
 

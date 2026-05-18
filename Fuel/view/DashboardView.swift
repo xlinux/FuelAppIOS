@@ -168,7 +168,7 @@ struct DashboardView: View {
                         }
                     }
                     statRow("Totale speso", totalSpent.formatted(.currency(code: "EUR")))
-                    statRow("Km totali tracciati", "\(Int(totalKm)) km")
+//<s                    statRow("Km totali tracciati", "\(Int(totalKm)) km")
                     statRow("Costo medio/km", costPerKm.formatted(.currency(code: "EUR")))
                     statRow("Media rifornimento", averageRefuel.formatted(.currency(code: "EUR")))
                     statRow("Numero rifornimenti", "\(carEntries.count)")
