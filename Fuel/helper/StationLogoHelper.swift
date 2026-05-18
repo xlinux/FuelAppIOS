@@ -5,6 +5,12 @@ enum StationLogoHelper {
     static func imageName(for brand: String) -> String? {
 
         let normalized = brand.lowercased()
+        let normalizedWords = normalized
+            .replacingOccurrences(
+                of: "[^a-z0-9]+",
+                with: " ",
+                options: .regularExpression
+            )
 
         if normalized.contains("eni") || normalized.contains("agip") {
             return "logo_eni"
@@ -36,6 +42,18 @@ enum StationLogoHelper {
 
         if normalized.contains("smaf") {
             return "logo_smaf"
+        }
+
+        if normalized.contains("sette") {
+            return "logo_sette"
+        }
+        
+        if normalized.contains("icm") {
+            return "logo_icm"
+        }
+        
+        if normalized.contains("cp") || normalizedWords.split(separator: " ").contains("cp") {
+            return "logo_cp"
         }
 
         return nil

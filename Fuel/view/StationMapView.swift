@@ -17,6 +17,10 @@ struct StationsMapView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var selectedStationIndex = 0
+    @State private var mapCenterCoordinate: CLLocationCoordinate2D?
+    @State private var lastSearchedCenter: CLLocationCoordinate2D?
+    @State private var hasInitializedCamera = false
     @State private var selectedFuelType: String = "BENZINA"
 
     private let locationService = LocationService()
@@ -42,6 +46,9 @@ struct StationsMapView: View {
                         Annotation(station.name, coordinate: station.coordinate) {
                             Button {
                                 selectedStation = station
+                                if let index = gasStations.firstIndex(where: { $0.id == station.id }) {
+                                    selectedStationIndex = index
+                                }
                                 moveMap(to: station, meters: 800)
                             } label: {
                                 HStack(spacing: 8) {
@@ -80,12 +87,17 @@ struct StationsMapView: View {
                         }
                     }
                 }
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    mapCenterCoordinate = context.region.center
+                }
                 .ignoresSafeArea(edges: .bottom)
-
-                VStack(spacing: 8) {
+                .overlay(alignment: .top) {
                     fuelTypePicker
                         .padding(.horizontal)
+                        .padding(.top, 8)
+                }
 
+                VStack(spacing: 8) {
                     if isLoading {
                         HStack(spacing: 8) {
                             ProgressView()
@@ -108,9 +120,16 @@ struct StationsMapView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if let selectedStation {
-                        selectedStationCard(selectedStation)
-                            .padding(.horizontal)
+                    if !gasStations.isEmpty {
+                        TabView(selection: $selectedStationIndex) {
+                            ForEach(Array(gasStations.enumerated()), id: \.element.id) { index, station in
+                                selectedStationCard(station)
+                                    .padding(.horizontal)
+                                    .tag(index)
+                            }
+                        }
+                        .tabViewStyle(.page(indexDisplayMode: .never))
+                        .frame(height: 190)
                     }
                 }
                 .padding(.bottom, 12)
@@ -125,7 +144,7 @@ struct StationsMapView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task {
-                            await loadStations()
+                            await loadStations(centerOverride: mapCenterCoordinate)
                         }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -142,13 +161,19 @@ struct StationsMapView: View {
                 Task {
                     loadCars()
                     setFuelTypeFromSelectedCar()
-                    await loadStations()
+                    await loadStations(centerOverride: mapCenterCoordinate)
                 }
             }
             .onChange(of: selectedFuelType) {
                 Task {
-                    await loadStations()
+                    await loadStations(centerOverride: mapCenterCoordinate)
                 }
+            }
+            .onChange(of: selectedStationIndex) {
+                guard gasStations.indices.contains(selectedStationIndex) else { return }
+                let station = gasStations[selectedStationIndex]
+                selectedStation = station
+                moveMap(to: station, meters: 800)
             }
         }
     }
@@ -163,7 +188,7 @@ struct StationsMapView: View {
         .pickerStyle(.segmented)
         .padding(8)
         .background(Color.white)
-.foregroundStyle(Theme.text)
+        .foregroundStyle(Theme.text)
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
@@ -225,6 +250,12 @@ struct StationsMapView: View {
                         .font(.caption)
                         .foregroundStyle(.gray)
                 }
+
+                if let isSelfService = station.selfService {
+                    Text(isSelfService ? "Self" : "Servito")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isSelfService ? .blue : .orange)
+                }
             }
 
             HStack(spacing: 10) {
@@ -249,6 +280,7 @@ struct StationsMapView: View {
                 .tint(Theme.accent)
             }
             .font(.caption)
+
         }
         .padding()
         .background(Color.white)
@@ -277,14 +309,45 @@ struct StationsMapView: View {
         selectedFuelType = selectedCar.fuelTypeRaw.uppercased()
     }
 
-    private func loadStations() async {
+    private func loadStations(centerOverride: CLLocationCoordinate2D? = nil) async {
         isLoading = true
         errorMessage = nil
 
-        let location = await locationService.requestLocation()
-        currentLocation = location
+        var searchCoordinate = centerOverride
 
-        guard let location else {
+        if searchCoordinate == nil {
+            if let existingCenter = mapCenterCoordinate {
+                searchCoordinate = existingCenter
+            } else {
+                let location = await locationService.requestLocation()
+                currentLocation = location
+
+                guard let location else {
+                    gasStations = []
+                    selectedStation = nil
+                    errorMessage = "Posizione non disponibile."
+                    isLoading = false
+                    return
+                }
+
+                let userCoordinate = location.coordinate
+                searchCoordinate = userCoordinate
+                mapCenterCoordinate = userCoordinate
+
+                if !hasInitializedCamera {
+                    cameraPosition = .region(
+                        MKCoordinateRegion(
+                            center: userCoordinate,
+                            latitudinalMeters: 1200,
+                            longitudinalMeters: 1200
+                        )
+                    )
+                    hasInitializedCamera = true
+                }
+            }
+        }
+
+        guard let searchCoordinate else {
             gasStations = []
             selectedStation = nil
             errorMessage = "Posizione non disponibile."
@@ -292,18 +355,10 @@ struct StationsMapView: View {
             return
         }
 
-        cameraPosition = .region(
-            MKCoordinateRegion(
-                center: location.coordinate,
-                latitudinalMeters: stationSearchRadiusMeters * 2,
-                longitudinalMeters: stationSearchRadiusMeters * 2
-            )
-        )
-
         do {
             let stations = try await FuelStationAPI.shared.nearbyStations(
-                lat: location.coordinate.latitude,
-                lng: location.coordinate.longitude,
+                lat: searchCoordinate.latitude,
+                lng: searchCoordinate.longitude,
                 fuelType: selectedFuelType,
                 radiusMeters: Int(stationSearchRadiusMeters)
             )
@@ -324,6 +379,8 @@ struct StationsMapView: View {
             }
 
             selectedStation = gasStations.first
+            selectedStationIndex = 0
+            lastSearchedCenter = searchCoordinate
 
         } catch {
             gasStations = []
@@ -343,6 +400,16 @@ struct StationsMapView: View {
                 longitudinalMeters: meters
             )
         )
+    }
+
+    private func shouldReloadStations(for newCenter: CLLocationCoordinate2D) -> Bool {
+        guard let previousCenter = lastSearchedCenter else {
+            return true
+        }
+
+        let previous = CLLocation(latitude: previousCenter.latitude, longitude: previousCenter.longitude)
+        let current = CLLocation(latitude: newCenter.latitude, longitude: newCenter.longitude)
+        return previous.distance(from: current) > 250
     }
 
     private func openInAppleMaps(_ station: GasStation) {
