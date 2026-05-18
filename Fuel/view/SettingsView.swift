@@ -5,8 +5,11 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
 
+    
     @Query private var fuelEntries: [FuelEntry]
-
+    
+    @AppStorage("fuelPriceNotificationsEnabled")
+    private var fuelPriceNotificationsEnabled = true
     @AppStorage("carsJson") private var carsJson: String = ""
     @AppStorage("selectedCarId") private var selectedCarId: String = ""
 
@@ -44,7 +47,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            Form {/*
                 Section("Tema") {
                     Menu {
                         ForEach(AppTheme.allCases, id: \.rawValue) { theme in
@@ -59,15 +62,15 @@ struct SettingsView: View {
                             Spacer()
 
                             Text(appThemeRaw)
-                                .foregroundStyle(appTintColor)
+                                .foregroundStyle(Theme.accent)
 
                             Image(systemName: "chevron.up.chevron.down")
-                                .foregroundStyle(appTintColor)
+                                .foregroundStyle(Theme.accent)
                         }
                     }
                 }
-
-                Section("Aggiungi auto") {
+*/
+                Section {
                     TextField("Nome auto", text: $newCarName)
                         .focused($carNameFocused)
                         .submitLabel(.done)
@@ -84,15 +87,15 @@ struct SettingsView: View {
                     } label: {
                         HStack {
                             Text("Carburante")
-                                .foregroundStyle(Color(uiColor: .label))
+                                .foregroundStyle(.black)
 
                             Spacer()
 
                             Text(newFuelType.rawValue)
-                                .foregroundStyle(colorForFuelType(newFuelType))
+                                .foregroundStyle(.black)
 
                             Image(systemName: "chevron.up.chevron.down")
-                                .foregroundStyle(colorForFuelType(newFuelType))
+                                .foregroundStyle(.black)
                         }
                     }
 
@@ -105,9 +108,12 @@ struct SettingsView: View {
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                             .isEmpty
                     )
+                } header: {
+                    Text("Aggiungi auto")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Auto salvate") {
+                Section {
                     if isLoadingCars {
                         HStack {
                             Spacer()
@@ -116,7 +122,7 @@ struct SettingsView: View {
                         }
                     } else if cars.isEmpty {
                         Text("Nessuna auto salvata.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     } else {
                         ForEach(cars) { car in
                             Button {
@@ -127,25 +133,25 @@ struct SettingsView: View {
                                     VStack(alignment: .leading) {
                                         Text(car.name)
                                             .font(.headline)
-                                            .foregroundStyle(.primary)
+                                            .foregroundStyle(.black)
 
                                         Text(car.fuelTypeRaw)
                                             .font(.caption)
-                                            .foregroundStyle(colorForFuelType(car.fuelType))
+                                            .foregroundStyle(.gray)
                                     }
 
                                     Spacer()
 
                                     if selectedCarId == car.id.uuidString {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(colorForFuelType(car.fuelType))
+                                            .foregroundStyle(Theme.accent)
                                     }
 
                                     Button {
                                         startEdit(car)
                                     } label: {
                                         Image(systemName: "pencil")
-                                            .foregroundStyle(colorForFuelType(car.fuelType))
+                                            .foregroundStyle(Theme.accent)
                                     }
                                     .buttonStyle(.borderless)
                                 }
@@ -154,9 +160,12 @@ struct SettingsView: View {
                         }
                         .onDelete(perform: deleteCars)
                     }
+                } header: {
+                    Text("Auto salvate")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Ricerca distributori") {
+                Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("Raggio ricerca")
@@ -165,7 +174,7 @@ struct SettingsView: View {
 
                             Text("\(Int(stationSearchRadiusMeters / 1000)) km")
                                 .fontWeight(.semibold)
-                                .foregroundStyle(appTintColor)
+                                .foregroundStyle(Theme.accent)
                         }
 
                         Slider(
@@ -173,31 +182,57 @@ struct SettingsView: View {
                             in: 2000...10000,
                             step: 1000
                         )
-                        .tint(appTintColor)
+                        .tint(Theme.accent)
 
                         Text("Usato per cercare distributori vicini e consigliati.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     }
+                } header: {
+                    Text("Ricerca distributori")
+                        .foregroundStyle(Theme.text)
                 }
 
+                Section {
+
+                    Toggle(
+                        "Avvisami quando sono vicino a distributori convenienti",
+                        isOn: $fuelPriceNotificationsEnabled
+                    )
+                } header: {
+                    Text("Notifiche")
+                        .foregroundStyle(Theme.text)
+                }
+                /*
                 Section("GPS") {
                     Toggle(
                         "Traccia km con GPS",
                         isOn: $gpsTrackingEnabled
                     )
-                    .tint(appTintColor)
+                 .tint(Theme.accent)
+                 .background(Theme.background)
 
                     Text("Km stimati dall’ultimo rifornimento: \(Int(estimatedKmSinceLastRefuel)) km")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.7))
 
                     Button("Azzera km GPS stimati") {
                         estimatedKmSinceLastRefuel = 0
                     }
                 }
+                 */
             }
+            .scrollContentBackground(.hidden)
+            .listRowBackground(Theme.background)
+            .background(Theme.background)
+            .foregroundStyle(.black)
             .navigationTitle("Impostazioni")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+                    .toolbarBackground(Theme.background, for: .navigationBar)
+                    .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .task {
                 await loadCarsFromBackend()
             }
@@ -215,19 +250,21 @@ struct SettingsView: View {
                         } label: {
                             HStack {
                                 Text("Carburante")
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(.black)
 
                                 Spacer()
 
-                                Text(editFuelType.rawValue)
-                                    .foregroundStyle(colorForFuelType(editFuelType))
+                                Text(newFuelType.rawValue)
+                                    .foregroundStyle(Theme.accent)
 
                                 Image(systemName: "chevron.up.chevron.down")
-                                    .foregroundStyle(colorForFuelType(editFuelType))
+                                    .foregroundStyle(Theme.accent)
                             }
                         }
                     }
                     .navigationTitle("Modifica auto")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Annulla") {

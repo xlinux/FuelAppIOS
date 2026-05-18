@@ -6,3 +6,11 @@
 <array>
     <string>comgooglemaps</string>
 </array>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Usiamo la posizione per trovare i distributori vicini e calcolare il miglior rifornimento.</string>
+
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>Usiamo la posizione anche in background per avvisarti quando sei vicino a distributori convenienti.</string>
+
+<key>NSUserNotificationUsageDescription</key>
+<string>Usiamo le notifiche per segnalarti distributori con prezzi convenienti nelle vicinanze.</string>

@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var isLoadingStations = false
     @State private var stationError: String?
     @State private var stationForActions: GasStation?
+    @State private var selectedRecommendedStationId: UUID?
     @State private var showingAdd = false
 
     private let locationService = LocationService()
@@ -120,7 +121,7 @@ struct HomeView: View {
                                     .font(.headline)
 
                                 Text("Residuo stimato: \(Int(estimatedRemainingKm)) km")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.white.opacity(0.7))
                             }
                         }
 
@@ -134,7 +135,7 @@ struct HomeView: View {
                     .padding(.vertical, 8)
                 }
 
-                Section("Auto selezionata") {
+                Section {
                     if let selectedCar {
                         HStack {
                             Image(systemName: "car.fill")
@@ -144,16 +145,19 @@ struct HomeView: View {
 
                                 Text(selectedCar.fuelTypeRaw)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.white.opacity(0.7))
                             }
                         }
                     } else {
                         Text("Nessuna auto selezionata.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     }
+                } header: {
+                    Text("Auto selezionata")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Dove conviene fare benzina") {
+                Section {
                     Button {
                         Task {
                             await loadRecommendedStations()
@@ -172,21 +176,24 @@ struct HomeView: View {
                     if let stationError {
                         Text(stationError)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     }
 
                     if recommendedStations.isEmpty && !isLoadingStations {
                         Text("Nessun consiglio calcolato.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     } else {
                         ForEach(recommendedStations) { station in
                             stationRow(station)
                         }
                     }
+                } header: {
+                    Text("Dove conviene fare benzina")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Riepilogo") {
+                Section {
                     if let selectedCar {
                         statRow("Statistiche auto", selectedCar.name)
                     }
@@ -194,9 +201,19 @@ struct HomeView: View {
                     statRow("Km totali tracciati", "\(Int(totalKm)) km")
                     statRow("Media km per euro", String(format: "%.2f km/€", kmPerEuro))
                     statRow("Numero rifornimenti", "\(carEntries.count)")
+                } header: {
+                    Text("Riepilogo")
+                        .foregroundStyle(Theme.text)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .listRowBackground(Theme.background)
+            .background(Theme.background)
             .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .task {
                 loadCars()
                 await loadRecommendedStations()
@@ -229,56 +246,94 @@ struct HomeView: View {
             } message: {
                 Text(stationForActions?.name ?? "Distributore")
             }
-        }
+        }.scrollContentBackground(.hidden)
+            .background(Theme.background)
     }
 
     private func stationRow(_ station: GasStation) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(station.name)
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center) {
+                    HStack(spacing: 8) {
+                        if let logoName = StationLogoHelper.imageName(for: station.name) {
+                            Image(logoName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 28, height: 28)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        } else {
+                            Image(systemName: "fuelpump.fill")
+                                .font(.title3)
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 28, height: 28)
+                        }
+
+                        Text(station.name)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                    }
+
+                    Spacer()
+
+                    if let price = station.price {
+                        Text(String(format: "%.3f €/L", price))
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Prezzo non disponibile")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                    }
+                }
 
                 if let address = station.address {
                     Text(address)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.gray)
                 }
 
-                Text("\(Int(station.distanceMeters)) metri")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let price = station.price {
-                    Text(String(format: "%.3f €/L", price))
+                HStack(spacing: 10) {
+                    Text("\(Int(station.distanceMeters)) metri")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                        .foregroundStyle(.gray)
 
-                if let updated = station.priceUpdatedAtFormatted {
-                    Text("\(station.priceFreshnessDot) Aggiornato: \(updated)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                    if let updated = station.priceUpdatedAtFormatted {
+                        Text("\(station.priceFreshnessDot) \(updated)")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
 
-                if let selfService = station.selfService {
-                    Text(selfService ? "Self" : "Servito")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        if let selfService = station.selfService {
+                            Text(selfService ? "Self" : "Servito")
+                                .font(.caption)
+                                .foregroundStyle(selfService ? .green : .orange)
+                        }
+                    }
                 }
-
-                Text("Tieni premuto per aprire Maps")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
 
-            Image(systemName: "map")
-                .foregroundStyle(.secondary)
+            Button {
+                stationForActions = station
+            } label: {
+                Image(systemName: "map")
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    selectedRecommendedStationId == station.id
+                    ? Theme.accent.opacity(0.25)
+                    : Color.clear
+                )
+        )
         .contentShape(Rectangle())
-        .onLongPressGesture {
-            stationForActions = station
+        .onTapGesture {
+            selectedRecommendedStationId = station.id
         }
     }
 
@@ -359,8 +414,11 @@ struct HomeView: View {
     }
 
     private func openInAppleMaps(_ station: GasStation) {
-        let placemark = MKPlacemark(coordinate: station.coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
+        let location = CLLocation(
+            latitude: station.coordinate.latitude,
+            longitude: station.coordinate.longitude
+        )
+        let mapItem = MKMapItem(location: location, address: nil)
         mapItem.name = station.name
 
         mapItem.openInMaps(launchOptions: [

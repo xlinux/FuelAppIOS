@@ -20,7 +20,8 @@ struct CarsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Aggiungi auto") {
+                Section {
+
                     TextField("Nome auto", text: $newCarName)
                         .focused($carNameFocused)
                         .submitLabel(.done)
@@ -38,12 +39,16 @@ struct CarsView: View {
                         addCar()
                     }
                     .disabled(newCarName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } header: {
+                    Text("Aggiungi auto")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Auto salvate") {
+                Section {
+
                     if cars.isEmpty {
                         Text("Nessuna auto salvata.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     } else {
                         ForEach(cars, id: \.self) { car in
                             Button {
@@ -64,9 +69,20 @@ struct CarsView: View {
                         }
                         .onDelete(perform: deleteCars)
                     }
+                } header: {
+                    Text("Auto salvate")
+                        .foregroundStyle(Theme.text)
                 }
             }
+            .foregroundStyle(.black)
             .navigationTitle("Auto")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .scrollContentBackground(.hidden)
+            
+            .background(Theme.background)
         }
     }
 

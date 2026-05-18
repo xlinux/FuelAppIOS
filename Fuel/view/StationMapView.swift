@@ -44,22 +44,39 @@ struct StationsMapView: View {
                                 selectedStation = station
                                 moveMap(to: station, meters: 800)
                             } label: {
-                                VStack(spacing: 2) {
-                                    Text(station.name)
-                                        .font(.caption2.bold())
-                                        .lineLimit(1)
+                                HStack(spacing: 8) {
+                                    if let logoName = StationLogoHelper.imageName(for: station.name) {
+                                        Image(logoName)
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 32, height: 32)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    } else {
+                                        Image(systemName: "fuelpump.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.black)
+                                            .frame(width: 32, height: 32)
+                                    }
 
-                                    if let price = station.price {
-                                        Text(String(format: "%.3f €/L", price))
-                                            .font(.caption2)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(station.name)
+                                            .font(.caption.bold())
+                                            .lineLimit(1)
+                                            .foregroundStyle(.black)
+
+                                        if let price = station.price {
+                                            Text("\(fuelTypeDisplayName(selectedFuelType)) \(String(format: "%.3f €/L", price))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                        }
                                     }
                                 }
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(.regularMaterial)
+                                .padding(.vertical, 6)
+                                .background(Color.white)
+.foregroundStyle(Theme.text)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -76,7 +93,8 @@ struct StationsMapView: View {
                                 .font(.caption)
                         }
                         .padding(10)
-                        .background(.regularMaterial)
+                        .background(Color.white)
+.foregroundStyle(Theme.text)
                         .clipShape(Capsule())
                     }
 
@@ -85,7 +103,8 @@ struct StationsMapView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                             .padding(10)
-                            .background(.regularMaterial)
+                            .background(Color.white)
+.foregroundStyle(Theme.text)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
@@ -97,6 +116,10 @@ struct StationsMapView: View {
                 .padding(.bottom, 12)
             }
             .navigationTitle("Mappa distributori")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -139,15 +162,43 @@ struct StationsMapView: View {
         }
         .pickerStyle(.segmented)
         .padding(8)
-        .background(.regularMaterial)
+        .background(Color.white)
+.foregroundStyle(Theme.text)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func fuelTypeDisplayName(_ value: String) -> String {
+        switch value.uppercased() {
+        case "DIESEL":
+            return "Diesel"
+        case "GPL":
+            return "GPL"
+        case "METANO":
+            return "Metano"
+        case "BENZINA":
+            return "Benzina"
+        default:
+            return value.capitalized
+        }
     }
 
     private func selectedStationCard(_ station: GasStation) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(station.name)
-                    .font(.headline)
+                HStack(spacing: 8) {
+
+                    if let logoName = StationLogoHelper.imageName(for: station.name) {
+                        Image(logoName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 28, height: 28)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+
+                    Text(station.name)
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                }
 
                 Spacer()
 
@@ -161,18 +212,18 @@ struct StationsMapView: View {
             if let address = station.address {
                 Text(address)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.gray)
             }
 
             HStack {
                 Text("\(Int(station.distanceMeters)) metri")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.gray)
 
                 if let updated = station.priceUpdatedAtFormatted {
                     Text("\(station.priceFreshnessDot) \(updated)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.gray)
                 }
             }
 
@@ -182,21 +233,26 @@ struct StationsMapView: View {
                 } label: {
                     Label("Maps", systemImage: "map.fill")
                         .frame(maxWidth: .infinity)
+                        .foregroundStyle(.white)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
 
                 Button {
                     openInGoogleMaps(station)
                 } label: {
                     Label("Google", systemImage: "location.fill")
                         .frame(maxWidth: .infinity)
+                        .foregroundStyle(.black)
                 }
                 .buttonStyle(.bordered)
+                .tint(Theme.accent)
             }
             .font(.caption)
         }
         .padding()
-        .background(.regularMaterial)
+        .background(Color.white)
+        .foregroundStyle(.black)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
@@ -290,8 +346,11 @@ struct StationsMapView: View {
     }
 
     private func openInAppleMaps(_ station: GasStation) {
-        let placemark = MKPlacemark(coordinate: station.coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
+        let location = CLLocation(
+            latitude: station.coordinate.latitude,
+            longitude: station.coordinate.longitude
+        )
+        let mapItem = MKMapItem(location: location, address: nil)
         mapItem.name = station.name
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving

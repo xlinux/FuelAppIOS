@@ -123,7 +123,7 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Stima carburante") {
+                Section {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: fuelStatusIcon)
                             .font(.title2)
@@ -133,7 +133,7 @@ struct DashboardView: View {
                                 .font(.headline)
 
                             Text("Residuo stimato: \(Int(estimatedRemainingKm)) km")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.black.opacity(0.7))
                         }
                     }
 
@@ -141,15 +141,21 @@ struct DashboardView: View {
                     statRow("Km percorsi dall’ultimo", "\(Int(kmSinceLastRefuel)) km")
                     statRow("Km residui stimati", "\(Int(estimatedRemainingKm)) km")
                     statRow("Media km per euro", String(format: "%.2f km/€", kmPerEuro))
+                } header: {
+                    Text("Stima carburante")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Dall’ultimo rifornimento") {
+                Section {
                     statRow("Giorni passati", "\(daysSinceLastRefuel)")
                     statRow("Ultima spesa", lastEntry?.amount.formatted(.currency(code: "EUR")) ?? "-")
                     statRow("Ultimo chilometraggio", lastEntry == nil ? "-" : "\(Int(lastEntry!.odometerKm)) km")
+                } header: {
+                    Text("Dall’ultimo rifornimento")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Statistiche generali") {
+                Section {
                     if let selectedCar {
                         statRow("Statistiche auto", selectedCar.name)
                     }
@@ -158,7 +164,7 @@ struct DashboardView: View {
                             ProgressView()
                             Text("Aggiornamento dati...")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.black.opacity(0.7))
                         }
                     }
                     statRow("Totale speso", totalSpent.formatted(.currency(code: "EUR")))
@@ -166,12 +172,15 @@ struct DashboardView: View {
                     statRow("Costo medio/km", costPerKm.formatted(.currency(code: "EUR")))
                     statRow("Media rifornimento", averageRefuel.formatted(.currency(code: "EUR")))
                     statRow("Numero rifornimenti", "\(carEntries.count)")
+                } header: {
+                    Text("Statistiche generali")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Spesa per rifornimento") {
+                Section {
                     if carEntries.isEmpty {
                         Text("Nessun dato disponibile")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.black.opacity(0.7))
                     } else {
                         Chart(carEntries) { entry in
                             BarMark(
@@ -181,12 +190,15 @@ struct DashboardView: View {
                         }
                         .frame(height: 220)
                     }
+                } header: {
+                    Text("Spesa per rifornimento")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Andamento chilometri") {
+                Section {
                     if carEntries.isEmpty {
                         Text("Nessun dato disponibile")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.black.opacity(0.7))
                     } else {
                         Chart(carEntries) { entry in
                             LineMark(
@@ -196,12 +208,21 @@ struct DashboardView: View {
                         }
                         .frame(height: 220)
                     }
+                } header: {
+                    Text("Andamento chilometri")
+                        .foregroundStyle(Theme.text)
                 }
             }
+            .foregroundStyle(.black)
             .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .task {
                 await syncFuelEntriesFromBackend()
-            }
+            }.scrollContentBackground(.hidden)
+                .background(Theme.background)
         }
     }
 

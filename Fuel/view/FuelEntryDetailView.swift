@@ -17,7 +17,7 @@ struct FuelEntryDetailView: View {
 
     var body: some View {
         List {
-            Section("Dettaglio") {
+            Section {
                 LabeledContent("Importo", value: entry.amount.formatted(.currency(code: "EUR")))
                 LabeledContent("Chilometri", value: "\(Int(entry.odometerKm)) km")
                 LabeledContent("Data", value: entry.date.formatted(date: .abbreviated, time: .shortened))
@@ -29,24 +29,40 @@ struct FuelEntryDetailView: View {
                 if let address = entry.address {
                     LabeledContent("Indirizzo", value: address)
                 }
+            } header: {
+                Text("Dettaglio")
+                    .foregroundStyle(Theme.text)
             }
 
             if let coordinate {
-                Section("Mappa") {
+                Section {
                     Map {
                         Marker("Rifornimento", coordinate: coordinate)
                     }
                     .frame(height: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                } header: {
+                    Text("Mappa")
+                        .foregroundStyle(Theme.text)
                 }
             } else {
-                Section("Mappa") {
+                Section {
                     Text("Posizione non disponibile per questo rifornimento.")
-                        .foregroundStyle(.secondary)
+                      .foregroundStyle(.black.opacity(0.7))
+                } header: {
+                    Text("Mappa")
+                        .foregroundStyle(Theme.text)
                 }
             }
         }
+        .foregroundStyle(.black)
         .navigationTitle("Rifornimento")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarBackground(Theme.background, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
     }
 }

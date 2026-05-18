@@ -22,30 +22,9 @@ struct ContentView: View {
     }
 
     private var appTintColor: Color {
-        guard
-            let data = carsJson.data(using: .utf8),
-            let cars = try? JSONDecoder().decode([CarInfo].self, from: data),
-            let selectedCar = cars.first(where: {
-                $0.id.uuidString == selectedCarId
-            })
-        else {
-            return .green
-        }
 
-        switch selectedCar.fuelType {
-        case .benzina:
-            return .orange
+        Theme.accent
 
-        case .diesel:
-            return .indigo
-
-        case .gpl:
-            return .green
-            
-        case .metano:
-            return .blue
-
-        }
     }
 
     var body: some View {
@@ -78,7 +57,7 @@ struct ContentView: View {
 
                             Text("Totale speso")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.black.opacity(0.7))
 
                             Text(
                                 totalSpent,
@@ -91,7 +70,7 @@ struct ContentView: View {
                                     ProgressView()
                                     Text("Sincronizzazione rifornimenti...")
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(.black.opacity(0.7))
                                 }
                             }
                         }
@@ -121,19 +100,19 @@ struct ContentView: View {
                                         Text(
                                             "\(entry.odometerKm, specifier: "%.0f") km"
                                         )
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(.black.opacity(0.7))
                                     }
 
                                     if let carName = entry.carName {
                                         Text(carName)
                                             .font(.caption)
-                                            .foregroundStyle(appTintColor)
+                                            .foregroundStyle(Theme.accent)
                                     }
 
                                     if let fuelType = entry.fuelTypeRaw {
                                         Text(fuelType)
                                             .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.black.opacity(0.7))
                                     }
 
                                     Text(entry.date, style: .date)
@@ -147,15 +126,22 @@ struct ContentView: View {
                                     if let address = entry.address {
                                         Text(address)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.black.opacity(0.7))
                                     }
                                 }
                             }
                         }
                         .onDelete(perform: deleteEntries)
-                    }
+                    }.scrollContentBackground(.hidden)
                 }
+                .scrollContentBackground(.hidden)
+                .background(Theme.background)
+                .foregroundStyle(.black)
                 .navigationTitle("Rifornimenti")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarBackground(Theme.background, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
 
                     ToolbarItem(placement: .topBarTrailing) {
@@ -178,7 +164,8 @@ struct ContentView: View {
                 Label(
                     "Rifornimenti",
                     systemImage: "fuelpump.fill"
-                )
+                ).background(Theme.card)
+                    .foregroundStyle(Theme.text)
             }
 
             DashboardView()
@@ -197,7 +184,11 @@ struct ContentView: View {
                     )
                 }
         }
-        .tint(appTintColor)
+        .tint(Theme.accent)
+        .toolbarColorScheme(.dark, for: .tabBar)
+        .toolbarBackground(Theme.background, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .background(Theme.background)
     }
 
     private func deleteEntries(at offsets: IndexSet) {

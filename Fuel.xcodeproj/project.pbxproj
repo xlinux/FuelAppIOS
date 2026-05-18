@@ -10,9 +10,22 @@
 		926D8BF82FB31F97005AFBFB /* Fuel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fuel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		922FB6B72FBAFC1F00E05E4C /* Exceptions for "Fuel" folder in "Fuel" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 926D8BF72FB31F97005AFBFB /* Fuel */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		926D8BFA2FB31F97005AFBFB /* Fuel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				922FB6B72FBAFC1F00E05E4C /* Exceptions for "Fuel" folder in "Fuel" target */,
+			);
 			path = Fuel;
 			sourceTree = "<group>";
 		};
@@ -256,6 +269,7 @@
 				DEVELOPMENT_TEAM = MZXVU27WTU;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Fuel/Info.plist;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";
@@ -292,6 +306,7 @@
 				DEVELOPMENT_TEAM = MZXVU27WTU;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Fuel/Info.plist;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Usiamo la posizione per salvare dove hai fatto benzina.";

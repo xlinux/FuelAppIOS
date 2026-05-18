@@ -122,6 +122,7 @@ struct AddFuelEntryView: View {
 
     @State private var stationForActions: GasStation?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var visibleStationIds: Set<UUID> = []
 
     private let locationService = LocationService()
 
@@ -143,13 +144,24 @@ struct AddFuelEntryView: View {
         }
     }
 
+    private var currentVisibleListSource: [GasStation] {
+        selectedStationsTab == 0 ? recommendedStations : filteredGasStations
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Auto") {
+            VStack(spacing: 0) {
+                persistentMapPanel
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .background(Theme.background)
+
+                Form {
+                Section {
                     if cars.isEmpty {
                         Text("Nessuna auto salvata. Aggiungila dalle Impostazioni.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.black.opacity(0.7))
                     } else {
                         Picker("Auto", selection: $selectedEntryCarId) {
                             ForEach(cars) { car in
@@ -158,9 +170,12 @@ struct AddFuelEntryView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("Auto")
+                        .foregroundStyle(Theme.text)
                 }
 
-                Section("Dati rifornimento") {
+                Section {
                     TextField("Importo speso", text: $amount)
                         .keyboardType(.decimalPad)
 
@@ -170,57 +185,11 @@ struct AddFuelEntryView: View {
                     if gpsTrackingEnabled {
                         Text("Km stimati da GPS: \(Int(estimatedKmSinceLastRefuel)) km")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.black.opacity(0.7))
                     }
-                }
-
-                Section("Mappa") {
-                    if let location = currentLocation {
-                        Map(position: $cameraPosition) {
-                            Marker("Tu", coordinate: location.coordinate)
-
-                            ForEach(gasStations) { station in
-                                Annotation(station.name, coordinate: station.coordinate) {
-                                    Button {
-                                        selectStation(station)
-                                    } label: {
-                                        VStack(spacing: 2) {
-                                            Text(station.name)
-                                                .font(.caption2.bold())
-                                                .lineLimit(1)
-
-                                            if let price = station.price {
-                                                Text(String(format: "%.3f €/L", price))
-                                                    .font(.caption2)
-                                            }
-                                        }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 5)
-                                        .background(.regularMaterial)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                        .frame(height: 250)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                        if let currentAddress {
-                            Text(currentAddress)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text("Posizione non disponibile")
-                            .foregroundStyle(.secondary)
-
-                        Button("Rileva posizione") {
-                            Task {
-                                await loadLocationAndStations()
-                            }
-                        }
-                    }
+                } header: {
+                    Text("Dati rifornimento")
+                        .foregroundStyle(Theme.text)
                 }
 
                 Section {
@@ -250,6 +219,7 @@ struct AddFuelEntryView: View {
                                 ? "Trova i 2 migliori distributori"
                                 : "Aggiorna distributori nel raggio"
                             )
+                            .foregroundStyle(Theme.accent)
                         }
                     }
                     .disabled(
@@ -272,13 +242,13 @@ struct AddFuelEntryView: View {
                         if let bestStationMessage {
                             Text(bestStationMessage)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.black.opacity(0.7))
                         }
 
                         if recommendedStations.isEmpty {
                             Text("Nessun consiglio calcolato.")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.black.opacity(0.7))
                         } else {
                             ForEach(recommendedStations) { station in
                                 stationRow(station)
@@ -296,7 +266,7 @@ struct AddFuelEntryView: View {
                                     .progressViewStyle(.circular)
 
                                 Text("Ricerca distributori...")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.black.opacity(0.7))
                             }
                             .padding(.vertical, 8)
 
@@ -306,7 +276,7 @@ struct AddFuelEntryView: View {
                                 ? "Nessun benzinaio trovato vicino."
                                 : "Nessun distributore trovato con questa ricerca."
                             )
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.black.opacity(0.7))
                         } else {
                             ForEach(filteredGasStations) { station in
                                 stationRow(station)
@@ -315,9 +285,18 @@ struct AddFuelEntryView: View {
                     }
                 } header: {
                     Text("Distributori")
+                        .foregroundStyle(Theme.text)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .listRowBackground(Theme.background)
+            .background(Theme.background)
+            .foregroundStyle(.black)
             .navigationTitle("Nuovo rifornimento")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Theme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -350,8 +329,15 @@ struct AddFuelEntryView: View {
                 Task {
                     bestStationMessage = nil
                     recommendedStations = []
+                    visibleStationIds = []
                     await loadLocationAndStations()
                 }
+            }
+            .onChange(of: selectedStationsTab) {
+                visibleStationIds = []
+            }
+            .onChange(of: nearbyStationSearchText) {
+                visibleStationIds = []
             }
             .confirmationDialog(
                 "Apri navigazione",
@@ -378,65 +364,170 @@ struct AddFuelEntryView: View {
             } message: {
                 Text(stationForActions?.name ?? "Distributore")
             }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var persistentMapPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Mappa")
+                .font(.headline)
+                .foregroundStyle(Theme.text)
+
+            if let location = currentLocation {
+                Map(position: $cameraPosition) {
+                    Marker("Tu", coordinate: location.coordinate)
+
+                    ForEach(gasStations) { station in
+                        Annotation(station.name, coordinate: station.coordinate) {
+                            Button {
+                                selectStation(station)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if let logoName = StationLogoHelper.imageName(for: station.name) {
+                                        Image(logoName)
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 32, height: 32)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    } else {
+                                        Image(systemName: "fuelpump.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(Theme.accent)
+                                            .frame(width: 32, height: 32)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(station.name)
+                                            .font(.caption.bold())
+                                            .lineLimit(1)
+                                            .foregroundStyle(.black)
+
+                                        if let price = station.price {
+                                            Text("\(selectedEntryCar?.fuelTypeRaw ?? "Carburante") \(String(format: "%.3f €/L", price))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                        } else {
+                                            Text("Prezzo non disponibile")
+                                                .font(.caption2)
+                                                .foregroundStyle(.gray)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(Color.white)
+                                .foregroundStyle(.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if let currentAddress {
+                    Text(currentAddress)
+                        .font(.caption)
+                        .foregroundStyle(.black.opacity(0.7))
+                        .padding(.horizontal, 6)
+                }
+            } else {
+                Text("Posizione non disponibile")
+                    .foregroundStyle(.black.opacity(0.7))
+
+                Button("Rileva posizione") {
+                    Task {
+                        await loadLocationAndStations()
+                    }
+                }
+            }
         }
     }
 
     @ViewBuilder
     private func stationRow(_ station: GasStation) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(station.name)
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center) {
+                    HStack(spacing: 8) {
+                        if let logoName = StationLogoHelper.imageName(for: station.name) {
+                            Image(logoName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 28, height: 28)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        } else {
+                            Image(systemName: "fuelpump.fill")
+                                .font(.title3)
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 28, height: 28)
+                        }
+
+                        Text(station.name)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                    }
+
+                    Spacer()
+
+                    if let price = station.price {
+                        Text(String(format: "%.3f €/L", price))
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Prezzo non disponibile")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
+                    }
+                }
 
                 if let address = station.address {
                     Text(address)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.gray)
                 }
 
-                Text("\(Int(station.distanceMeters)) metri")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let price = station.price {
-                    Text(String(format: "%.3f €/L", price))
+                HStack(spacing: 10) {
+                    Text("\(Int(station.distanceMeters)) metri")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                        .foregroundStyle(.gray)
 
-                if let updated = station.priceUpdatedAtFormatted {
-                    Text("\(station.priceFreshnessDot) Aggiornato: \(updated)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                    if let updated = station.priceUpdatedAtFormatted {
+                        Text("\(station.priceFreshnessDot) \(updated)")
+                            .font(.caption)
+                            .foregroundStyle(.gray)
 
-                if let selfService = station.selfService {
-                    Text(selfService ? "Self" : "Servito")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        if let selfService = station.selfService {
+                            Text(selfService ? "Self" : "Servito")
+                                .font(.caption)
+                                .foregroundStyle(selfService ? .green : .orange)
+                        }
+                    }
                 }
-
-                Text("Tocca per selezionare, tieni premuto per navigare")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
 
-            if selectedStation?.id == station.id {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            } else {
+            Button {
+                stationForActions = station
+            } label: {
                 Image(systemName: "map")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent)
             }
+            .buttonStyle(.plain)
         }
         .contentShape(Rectangle())
         .onTapGesture {
             selectStation(station)
         }
-        .onLongPressGesture {
-            stationForActions = station
+        .onAppear {
+            updateVisibleStation(station, isVisible: true)
+        }
+        .onDisappear {
+            updateVisibleStation(station, isVisible: false)
         }
     }
 
@@ -456,6 +547,7 @@ struct AddFuelEntryView: View {
         isLoadingStations = true
         gasStations = []
         selectedStation = nil
+        visibleStationIds = []
 
         let location = await locationService.requestLocation()
         currentLocation = location
@@ -596,9 +688,31 @@ struct AddFuelEntryView: View {
         )
     }
 
+    private func updateVisibleStation(_ station: GasStation, isVisible: Bool) {
+        if isVisible {
+            visibleStationIds.insert(station.id)
+        } else {
+            visibleStationIds.remove(station.id)
+        }
+
+        guard let firstVisible = currentVisibleListSource.first(where: {
+            visibleStationIds.contains($0.id)
+        }) else {
+            return
+        }
+
+        if selectedStation?.id != firstVisible.id {
+            selectedStation = firstVisible
+            moveMap(to: firstVisible, meters: 800)
+        }
+    }
+
     private func openInAppleMaps(_ station: GasStation) {
-        let placemark = MKPlacemark(coordinate: station.coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
+        let location = CLLocation(
+            latitude: station.coordinate.latitude,
+            longitude: station.coordinate.longitude
+        )
+        let mapItem = MKMapItem(location: location, address: nil)
         mapItem.name = station.name
 
         mapItem.openInMaps(launchOptions: [
