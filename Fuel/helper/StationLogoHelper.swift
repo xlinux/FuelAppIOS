@@ -16,7 +16,7 @@ enum StationLogoHelper {
             return "logo_eni"
         }
 
-        if normalized.contains("q8") {
+        if normalized.contains("q8")  || normalized.contains("tiber"){
             return "logo_q8"
         }
 
@@ -54,6 +54,14 @@ enum StationLogoHelper {
         
         if normalized.contains("cp") || normalizedWords.split(separator: " ").contains("cp") {
             return "logo_cp"
+        }
+        
+        if normalized.contains("kero") {
+            return "logo_keropetrol"
+        }
+        
+        if normalized.contains("shell") {
+            return "logo_shell"
         }
 
         return nil

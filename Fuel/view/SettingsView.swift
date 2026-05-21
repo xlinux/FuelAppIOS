@@ -194,6 +194,15 @@ struct SettingsView: View {
                     Text("Notifiche")
                         .foregroundStyle(Theme.text)
                 }
+
+                Section {
+                    Text("I dati dei prezzi carburante provengono dal MIMIT e potrebbero non essere aggiornati in tempo reale.")
+                        .font(.caption)
+                        .foregroundStyle(.black.opacity(0.8))
+                } header: {
+                    Text("Informativa dati")
+                        .foregroundStyle(Theme.text)
+                }
                 /*
                 Section("GPS") {
                     Toggle(

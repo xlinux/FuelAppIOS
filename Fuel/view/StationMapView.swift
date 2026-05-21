@@ -5,6 +5,11 @@ import MapKit
 import UIKit
 
 struct StationsMapView: View {
+    private struct MergedStation: Identifiable {
+        let id: UUID
+        let primary: GasStation
+        let secondary: GasStation?
+    }
 
     @AppStorage("carsJson") private var carsJson: String = ""
     @AppStorage("selectedCarId") private var selectedCarId: String = ""
@@ -29,6 +34,32 @@ struct StationsMapView: View {
         cars.first { $0.id.uuidString == selectedCarId }
     }
 
+    private var mergedStations: [MergedStation] {
+        var result: [MergedStation] = []
+        var index = 0
+
+        while index < gasStations.count {
+            let primary = gasStations[index]
+            let nextIndex = index + 1
+            let secondary: GasStation? = {
+                guard nextIndex < gasStations.count else { return nil }
+                return stationKey(primary) == stationKey(gasStations[nextIndex]) ? gasStations[nextIndex] : nil
+            }()
+
+            result.append(
+                MergedStation(
+                    id: primary.id,
+                    primary: primary,
+                    secondary: secondary
+                )
+            )
+
+            index += (secondary == nil ? 1 : 2)
+        }
+
+        return result
+    }
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -42,11 +73,14 @@ struct StationsMapView: View {
                         .tint(.blue)
                     }
 
-                    ForEach(gasStations) { station in
+                    ForEach(mergedStations) { merged in
+                        let station = merged.primary
+                        let prices = mergedPrices(primary: merged.primary, secondary: merged.secondary)
+
                         Annotation(station.name, coordinate: station.coordinate) {
                             Button {
                                 selectedStation = station
-                                if let index = gasStations.firstIndex(where: { $0.id == station.id }) {
+                                if let index = mergedStations.firstIndex(where: { $0.id == merged.id }) {
                                     selectedStationIndex = index
                                 }
                                 moveMap(to: station, meters: 800)
@@ -71,8 +105,12 @@ struct StationsMapView: View {
                                             .lineLimit(1)
                                             .foregroundStyle(.black)
 
-                                        if let price = station.price {
-                                            Text("\(fuelTypeDisplayName(selectedFuelType)) \(String(format: "%.3f €/L", price))")
+                                        if let selfPrice = prices.selfPrice {
+                                            Text("Self \(String(format: "%.3f €/L", selfPrice))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                        } else if let servedPrice = prices.servedPrice {
+                                            Text("Serv \(String(format: "%.3f €/L", servedPrice))")
                                                 .font(.caption2)
                                                 .foregroundStyle(.green)
                                         }
@@ -120,10 +158,10 @@ struct StationsMapView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if !gasStations.isEmpty {
+                    if !mergedStations.isEmpty {
                         TabView(selection: $selectedStationIndex) {
-                            ForEach(Array(gasStations.enumerated()), id: \.element.id) { index, station in
-                                selectedStationCard(station)
+                            ForEach(Array(mergedStations.enumerated()), id: \.element.id) { index, merged in
+                                selectedStationCard(primary: merged.primary, secondary: merged.secondary)
                                     .padding(.horizontal)
                                     .tag(index)
                             }
@@ -174,8 +212,8 @@ struct StationsMapView: View {
                 }
             }
             .onChange(of: selectedStationIndex) {
-                guard gasStations.indices.contains(selectedStationIndex) else { return }
-                let station = gasStations[selectedStationIndex]
+                guard mergedStations.indices.contains(selectedStationIndex) else { return }
+                let station = mergedStations[selectedStationIndex].primary
                 selectedStation = station
                 moveMap(to: station, meters: 800)
             }
@@ -211,8 +249,41 @@ struct StationsMapView: View {
         }
     }
 
-    private func selectedStationCard(_ station: GasStation) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func stationKey(_ station: GasStation) -> String {
+        let address = (station.address ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return "\(station.name.lowercased())|\(address)"
+    }
+
+    private func mergedPrices(primary: GasStation, secondary: GasStation?) -> (selfPrice: Double?, servedPrice: Double?) {
+        var selfPrice: Double?
+        var servedPrice: Double?
+
+        if primary.selfService == true {
+            selfPrice = primary.price
+        } else if primary.selfService == false {
+            servedPrice = primary.price
+        } else {
+            selfPrice = primary.price
+        }
+
+        if let secondary {
+            if secondary.selfService == true {
+                selfPrice = secondary.price ?? selfPrice
+            } else if secondary.selfService == false {
+                servedPrice = secondary.price ?? servedPrice
+            }
+        }
+
+        return (selfPrice, servedPrice)
+    }
+
+    private func selectedStationCard(primary station: GasStation, secondary: GasStation?) -> some View {
+        let prices = mergedPrices(primary: station, secondary: secondary)
+        let hasBothPrices = prices.selfPrice != nil && prices.servedPrice != nil
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 HStack(spacing: 8) {
 
@@ -231,10 +302,14 @@ struct StationsMapView: View {
 
                 Spacer()
 
-                if let price = station.price {
-                    Text(String(format: "%.3f €/L", price))
+                if !hasBothPrices, let selfPrice = prices.selfPrice {
+                    Text("Self \(String(format: "%.3f €/L", selfPrice))")
                         .font(.headline)
                         .foregroundStyle(.green)
+                } else if !hasBothPrices, let servedPrice = prices.servedPrice {
+                    Text("Servito \(String(format: "%.3f €/L", servedPrice))")
+                        .font(.headline)
+                        .foregroundStyle(.orange)
                 }
             }
 
@@ -255,10 +330,24 @@ struct StationsMapView: View {
                         .foregroundStyle(.gray)
                 }
 
-                if let isSelfService = station.selfService {
+                if !hasBothPrices, let isSelfService = station.selfService {
                     Text(isSelfService ? "Self" : "Servito")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(isSelfService ? .blue : .orange)
+                }
+            }
+
+            if hasBothPrices, let selfPrice = prices.selfPrice, let servedPrice = prices.servedPrice {
+                HStack {
+                    Text("Self \(String(format: "%.3f €/L", selfPrice))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.green)
+
+                    Spacer()
+
+                    Text("Servito \(String(format: "%.3f €/L", servedPrice))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
                 }
             }
 
