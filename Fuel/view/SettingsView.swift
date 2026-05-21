@@ -113,17 +113,8 @@ struct SettingsView: View {
                         .foregroundStyle(Theme.text)
                 }
 
-                Section {
-                    if isLoadingCars {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
-                    } else if cars.isEmpty {
-                        Text("Nessuna auto salvata.")
-                            .foregroundStyle(.white.opacity(0.7))
-                    } else {
+                if !cars.isEmpty {
+                    Section {
                         ForEach(cars) { car in
                             Button {
                                 selectedCarId = car.id.uuidString
@@ -159,10 +150,10 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
                         .onDelete(perform: deleteCars)
+                    } header: {
+                        Text("Auto salvate")
+                            .foregroundStyle(Theme.text)
                     }
-                } header: {
-                    Text("Auto salvate")
-                        .foregroundStyle(Theme.text)
                 }
 
                 Section {

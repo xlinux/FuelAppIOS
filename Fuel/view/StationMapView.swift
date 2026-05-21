@@ -152,10 +152,14 @@ struct StationsMapView: View {
                     .disabled(isLoading)
                 }
             }
+            .onAppear {
+                Task {
+                    await recenterOnCurrentLocationAndReload()
+                }
+            }
             .task {
                 loadCars()
                 setFuelTypeFromSelectedCar()
-                await loadStations()
             }
             .onChange(of: selectedCarId) {
                 Task {
@@ -392,6 +396,27 @@ struct StationsMapView: View {
         isLoading = false
     }
 
+    private func recenterOnCurrentLocationAndReload() async {
+        let location = await locationService.requestLocation()
+        currentLocation = location
+
+        guard let location else {
+            return
+        }
+
+        let coordinate = location.coordinate
+        mapCenterCoordinate = coordinate
+        cameraPosition = .region(
+            MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: 1200,
+                longitudinalMeters: 1200
+            )
+        )
+
+        await loadStations(centerOverride: coordinate)
+    }
+
     private func moveMap(to station: GasStation, meters: CLLocationDistance) {
         cameraPosition = .region(
             MKCoordinateRegion(
@@ -413,11 +438,12 @@ struct StationsMapView: View {
     }
 
     private func openInAppleMaps(_ station: GasStation) {
-        let location = CLLocation(
+        let coordinate = CLLocationCoordinate2D(
             latitude: station.coordinate.latitude,
             longitude: station.coordinate.longitude
         )
-        let mapItem = MKMapItem(location: location, address: nil)
+        let placemark = MKPlacemark(coordinate: coordinate)
+        let mapItem = MKMapItem(placemark: placemark)
         mapItem.name = station.name
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving

@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var selectedRecommendedStationId: UUID?
     @State private var selectedFuelType = "BENZINA"
     @State private var showingAdd = false
+    @State private var showingSettings = false
 
     private let locationService = LocationService()
 
@@ -111,51 +112,71 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: fuelStatusIcon)
-                                .font(.title2)
+                if cars.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Nessun veicolo configurato.")
+                                .font(.headline)
 
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(fuelStatusText)
+                            Text("Vai in Impostazioni per aggiungere un nuovo veicolo.")
+                                .foregroundStyle(.white.opacity(0.7))
+
+                            Button {
+                                showingSettings = true
+                            } label: {
+                                Label("Apri Impostazioni", systemImage: "gearshape.fill")
                                     .font(.headline)
-
-                                Text("Residuo stimato: \(Int(estimatedRemainingKm)) km")
-                                    .foregroundStyle(.white.opacity(0.7))
                             }
                         }
-
-                        Button {
-                            showingAdd = true
-                        } label: {
-                            Label("Aggiungi rifornimento", systemImage: "plus.circle.fill")
-                                .font(.headline)
-                        }
+                        .padding(.vertical, 8)
                     }
-                    .padding(.vertical, 8)
-                }
+                } else {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: fuelStatusIcon)
+                                    .font(.title2)
 
-                Section {
-                    if let selectedCar {
-                        HStack(spacing: 10) {
-                            Image(systemName: "car.fill")
-                            Text(selectedCar.name)
-                                .font(.headline)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(fuelStatusText)
+                                        .font(.headline)
 
-                            Spacer()
+                                    Text("Residuo stimato: \(Int(estimatedRemainingKm)) km")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                            }
 
-                            Text(selectedCar.fuelTypeRaw)
-                                .font(.caption)
+                            Button {
+                                showingAdd = true
+                            } label: {
+                                Label("Aggiungi rifornimento", systemImage: "plus.circle.fill")
+                                    .font(.headline)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    Section {
+                        if let selectedCar {
+                            HStack(spacing: 10) {
+                                Image(systemName: "car.fill")
+                                Text(selectedCar.name)
+                                    .font(.headline)
+
+                                Spacer()
+
+                                Text(selectedCar.fuelTypeRaw)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                        } else {
+                            Text("Nessuna auto selezionata.")
                                 .foregroundStyle(.white.opacity(0.7))
                         }
-                    } else {
-                        Text("Nessuna auto selezionata.")
-                            .foregroundStyle(.white.opacity(0.7))
+                    } header: {
+                        Text("Auto selezionata")
+                            .foregroundStyle(Theme.text)
                     }
-                } header: {
-                    Text("Auto selezionata")
-                        .foregroundStyle(Theme.text)
                 }
 
                 Section {
@@ -203,7 +224,7 @@ struct HomeView: View {
                         }
                     }
                 } header: {
-                    Text("Dove conviene fare benzina")
+                    Text("Dove conviene fare rifornimento")
                         .foregroundStyle(Theme.text)
                 }
 
@@ -247,6 +268,9 @@ struct HomeView: View {
             }
             .navigationDestination(isPresented: $showingAdd) {
                 AddFuelEntryView()
+            }
+            .navigationDestination(isPresented: $showingSettings) {
+                SettingsView()
             }
             .confirmationDialog(
                 "Apri navigazione",
@@ -494,11 +518,12 @@ struct HomeView: View {
     }
 
     private func openInAppleMaps(_ station: GasStation) {
-        let location = CLLocation(
+        let coordinate = CLLocationCoordinate2D(
             latitude: station.coordinate.latitude,
             longitude: station.coordinate.longitude
         )
-        let mapItem = MKMapItem(location: location, address: nil)
+        let placemark = MKPlacemark(coordinate: coordinate)
+        let mapItem = MKMapItem(placemark: placemark)
         mapItem.name = station.name
 
         mapItem.openInMaps(launchOptions: [

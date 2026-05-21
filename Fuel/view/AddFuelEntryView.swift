@@ -781,11 +781,12 @@ struct AddFuelEntryView: View {
     }
 
     private func openInAppleMaps(_ station: GasStation) {
-        let location = CLLocation(
+        let coordinate = CLLocationCoordinate2D(
             latitude: station.coordinate.latitude,
             longitude: station.coordinate.longitude
         )
-        let mapItem = MKMapItem(location: location, address: nil)
+        let placemark = MKPlacemark(coordinate: coordinate)
+        let mapItem = MKMapItem(placemark: placemark)
         mapItem.name = station.name
 
         mapItem.openInMaps(launchOptions: [
